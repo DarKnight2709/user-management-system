@@ -1,0 +1,9 @@
+# Auto-detect text files and nomalize line endings to LF
+* text=auto eol=lf
+
+# Explicit binary files
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary
+*.lock binary
