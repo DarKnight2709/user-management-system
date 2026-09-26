@@ -6,4 +6,4 @@ async function bootstrap() {
     if (err) console.error(err);
   });
 }
-bootstrap();
+await bootstrap();
