@@ -1,24 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { User } from './interfaces/user.interface.js';
 import { UserDto } from './dto/user.dto.js';
+import { PrismaService } from '@/core/database/prisma.service.js';
 
 @Injectable()
 export class UsersService {
-  private users: User[] = [
-    {
-      id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-      name: 'quyen tran',
-      age: 22,
-      email: 'quyentranduy@gmail.com',
-    },
-  ];
+  constructor(private readonly prismaService: PrismaService) {}
 
   async findAll(): Promise<User[]> {
-    return this.users;
+    return this.prismaService.user.findMany();
   }
 
   async findOne(id: string): Promise<User> {
-    const existingUser = this.users.find((user) => user.id === id);
+    const existingUser = await this.prismaService.user.findUnique({
+      where: { id },
+    });
 
     if (!existingUser) {
       throw new NotFoundException('User not Found');
@@ -28,26 +24,21 @@ export class UsersService {
   }
 
   async create(user: UserDto): Promise<User> {
-    const id = crypto.randomUUID();
-    const newUser: User = { id, ...user };
-    this.users.push(newUser);
+    const newUser = await this.prismaService.user.create({
+      data: user,
+    });
     return newUser;
   }
 
   async update(id: string, updateUserDto: UserDto): Promise<User> {
-    const index = this.users.findIndex((user) => user.id === id);
-
-    if (index === -1) {
-      throw new NotFoundException('User not Found');
-    }
-
-    this.users[index] = { ...this.users[index], ...updateUserDto };
-
-    return this.users[index];
+    const updatedUser = await this.prismaService.user.update({
+      where: { id },
+      data: updateUserDto,
+    });
+    return updatedUser;
   }
 
   async delete(id: string): Promise<void> {
-    await this.findOne(id);
-    this.users = this.users.filter((user) => user.id !== id);
+    await this.prismaService.user.delete({ where: { id } });
   }
 }

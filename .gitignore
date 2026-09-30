@@ -60,4 +60,5 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 GIT_GUIDELINES.md
 
 
+/src/generated/
 /generated/prisma
