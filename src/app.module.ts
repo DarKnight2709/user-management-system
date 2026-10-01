@@ -10,9 +10,19 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { GlobalModule } from './modules/global/global.module.js';
 import { PrismaClientExceptionFilter } from './common/filters/prisma-exception.filter.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { ConfigModule } from '@nestjs/config';
+import { envValidationSchema } from './core/config/env.validation.js';
 
 @Module({
-  imports: [UsersModule, GlobalModule, AuthModule],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validationSchema: envValidationSchema,
+    }),
+    UsersModule,
+    GlobalModule,
+    AuthModule,
+  ],
   controllers: [AppController],
   providers: [
     AppService,

@@ -7,14 +7,16 @@ import {
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { PrismaClient, Prisma } from '@/generated/prisma/client.js';
+import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  constructor() {
-    const isDevelopment = process.env.NODE_ENV === 'development';
-    const databaseUrl = process.env.DATABASE_URL;
+  constructor(private readonly configService: ConfigService) {
+    const isDevelopment =
+      configService.get<string>('NODE_ENV') === 'development';
+    const databaseUrl = configService.get<string>('DATABASE_URL');
 
     if (!databaseUrl) {
       throw new Error(
