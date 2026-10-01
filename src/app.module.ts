@@ -9,9 +9,10 @@ import { InputValidationPipe } from './common/pipes/validation.pipe.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { GlobalModule } from './modules/global/global.module.js';
 import { PrismaClientExceptionFilter } from './common/filters/prisma-exception.filter.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 
 @Module({
-  imports: [UsersModule, GlobalModule],
+  imports: [UsersModule, GlobalModule, AuthModule],
   controllers: [AppController],
   providers: [
     AppService,

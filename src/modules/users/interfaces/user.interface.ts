@@ -3,6 +3,13 @@ export interface User {
   name: string;
   age: number;
   email: string;
+  hashedPassword?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ValidCredential {
+  id: string;
+  name: string;
+  email: string;
 }
