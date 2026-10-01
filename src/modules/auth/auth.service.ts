@@ -1,8 +1,8 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../users/users.service.js';
 import { compare } from '@/common/utils/hash.util.js';
-import { ValidCredential } from '../users/interfaces/user.interface.js';
 import { JwtService } from '@nestjs/jwt';
+import { RequestUser } from '@/common/decorators/current-user.decorator.js';
 
 @Injectable()
 export class AuthService {
@@ -33,7 +33,7 @@ export class AuthService {
     };
   }
 
-  async login(user: ValidCredential) {
+  async login(user: RequestUser) {
     // generate JWT token
 
     const payload = {
