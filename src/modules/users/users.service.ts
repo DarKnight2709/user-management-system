@@ -1,19 +1,23 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { User } from './interfaces/user.interface.js';
 import { UserDto } from './dto/user.dto.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { hash } from '@/common/utils/hash.util.js';
-import { join } from 'path';
-import { mkdir, writeFile } from 'fs/promises';
 import { randomUUID } from 'crypto';
+import { S3Service } from '@/core/storage/s3.service.js';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prismaService: PrismaService) {}
+  private readonly logger = new Logger(UsersService.name);
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly s3Service: S3Service,
+  ) {}
 
   async findAll(): Promise<User[]> {
     return this.prismaService.user.findMany({
@@ -77,23 +81,29 @@ export class UsersService {
   async upload(
     userId: string,
     file: Express.Multer.File,
-  ): Promise<{ fileName: string; url: string }> {
+  ): Promise<{ key: string }> {
     if (!file) {
       throw new BadRequestException('Avatar file is required');
     }
+    await this.findOne(userId);
 
-    const avatarDirectory = join(process.cwd(), 'uploads', 'avatars');
+    const key = `avatars/${userId}-${randomUUID()}.jpg`;
+    await this.s3Service.upload(key, file.buffer, 'image/jpeg');
 
-    await mkdir(avatarDirectory, { recursive: true });
-
-    const fileName = `${userId}-${randomUUID()}.jpg`;
-    const filePath = join(avatarDirectory, fileName);
-
-    await writeFile(filePath, file.buffer);
-
-    return {
-      fileName,
-      url: `/static/avatars/${fileName}`,
-    };
+    try {
+      await this.prismaService.user.update({
+        where: { id: userId },
+        data: { avatarKey: key },
+      });
+      return { key };
+    } catch (databaseError) {
+      try {
+        await this.s3Service.delete(key);
+        this.logger.warn(`Roll back object: ${key}`);
+      } catch (deleteError) {
+        this.logger.error('Failed to delete key', deleteError);
+      }
+      throw databaseError;
+    }
   }
 }
