@@ -12,13 +12,19 @@ import { PrismaClientExceptionFilter } from './common/filters/prisma-exception.f
 import { AuthModule } from './modules/auth/auth.module.js';
 import { ConfigModule } from '@nestjs/config';
 import { envValidationSchema } from './core/config/env.validation.js';
-
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'uploads'),
+      serveRoot: '/static',
+    }),
+
     UsersModule,
     GlobalModule,
     AuthModule,

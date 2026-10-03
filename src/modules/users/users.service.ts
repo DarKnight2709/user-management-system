@@ -1,8 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { User } from './interfaces/user.interface.js';
 import { UserDto } from './dto/user.dto.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { hash } from '@/common/utils/hash.util.js';
+import { join } from 'path';
+import { mkdir, writeFile } from 'fs/promises';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -65,5 +72,28 @@ export class UsersService {
 
   async delete(id: string): Promise<void> {
     await this.prismaService.user.delete({ where: { id } });
+  }
+
+  async upload(
+    userId: string,
+    file: Express.Multer.File,
+  ): Promise<{ fileName: string; url: string }> {
+    if (!file) {
+      throw new BadRequestException('Avatar file is required');
+    }
+
+    const avatarDirectory = join(process.cwd(), 'uploads', 'avatars');
+
+    await mkdir(avatarDirectory, { recursive: true });
+
+    const fileName = `${userId}-${randomUUID()}.jpg`;
+    const filePath = join(avatarDirectory, fileName);
+
+    await writeFile(filePath, file.buffer);
+
+    return {
+      fileName,
+      url: `/static/avatars/${fileName}`,
+    };
   }
 }
