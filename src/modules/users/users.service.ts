@@ -10,6 +10,7 @@ import { PrismaService } from '@/core/database/prisma.service.js';
 import { hash } from '@/common/utils/hash.util.js';
 import { randomUUID } from 'crypto';
 import { S3Service } from '@/core/storage/s3.service.js';
+import type { UserModel } from '@/generated/prisma/models/User.js';
 
 @Injectable()
 export class UsersService {
@@ -19,16 +20,30 @@ export class UsersService {
     private readonly s3Service: S3Service,
   ) {}
 
+  private toUserResponse(
+    user: UserModel | (Omit<UserModel, 'hashedPassword'> & { hashedPassword?: string }),
+  ): User {
+    const { avatarKey, ...rest } = user;
+    return {
+      ...rest,
+      avatarUrl: this.s3Service.getPublicUrl(avatarKey),
+    };
+  }
+
   async findAll(): Promise<User[]> {
-    return this.prismaService.user.findMany({
+    const users = await this.prismaService.user.findMany({
       omit: { hashedPassword: true },
     });
+
+    return users.map((user) => this.toUserResponse(user));
   }
 
   async findOneByEmail(email: string): Promise<User | null> {
-    return this.prismaService.user.findUnique({
+    const user = await this.prismaService.user.findUnique({
       where: { email },
     });
+    if (!user) return null;
+    return this.toUserResponse(user);
   }
 
   async findOne(id: string): Promise<User> {
@@ -41,7 +56,7 @@ export class UsersService {
       throw new NotFoundException('User not Found');
     }
 
-    return existingUser;
+    return this.toUserResponse(existingUser);
   }
 
   async create(user: UserDto): Promise<User> {
@@ -56,7 +71,8 @@ export class UsersService {
         hashedPassword: true,
       },
     });
-    return newUser;
+
+    return this.toUserResponse(newUser);
   }
 
   async update(id: string, updateUserDto: UserDto): Promise<User> {
@@ -67,11 +83,13 @@ export class UsersService {
       updateData.hashedPassword = await hash(password);
     }
 
-    return this.prismaService.user.update({
+    const updatedUser = await this.prismaService.user.update({
       where: { id },
       data: updateData,
       omit: { hashedPassword: true },
     });
+
+    return this.toUserResponse(updatedUser);
   }
 
   async delete(id: string): Promise<void> {
@@ -81,7 +99,7 @@ export class UsersService {
   async upload(
     userId: string,
     file: Express.Multer.File,
-  ): Promise<{ key: string }> {
+  ): Promise<{ key: string; avatarUrl: string | null }> {
     if (!file) {
       throw new BadRequestException('Avatar file is required');
     }
@@ -95,7 +113,10 @@ export class UsersService {
         where: { id: userId },
         data: { avatarKey: key },
       });
-      return { key };
+      return {
+        key,
+        avatarUrl: this.s3Service.getPublicUrl(key),
+      };
     } catch (databaseError) {
       try {
         await this.s3Service.delete(key);

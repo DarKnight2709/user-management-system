@@ -15,4 +15,5 @@ export const envValidationSchema = Joi.object({
   S3_ACCESS_KEY: Joi.string().required(),
   S3_SECRET_KEY: Joi.string().required(),
   S3_FORCE_PATH_STYLE: Joi.boolean().default(true),
+  S3_PUBLIC_URL: Joi.string().uri().required(),
 });

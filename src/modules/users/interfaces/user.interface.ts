@@ -4,7 +4,7 @@ export interface User {
   age: number;
   email: string;
   hashedPassword?: string;
-  avatarKey?: string | null;
+  avatarUrl?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

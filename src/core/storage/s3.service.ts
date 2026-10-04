@@ -10,9 +10,11 @@ import {
 export class S3Service implements OnModuleDestroy {
   private readonly client: S3Client;
   private readonly bucket: string;
+  private readonly publicUrl: string;
 
   constructor(configService: ConfigService) {
     this.bucket = configService.getOrThrow<string>('S3_BUCKET');
+    this.publicUrl = configService.getOrThrow<string>('S3_PUBLIC_URL');
 
     this.client = new S3Client({
       endpoint: configService.getOrThrow<string>('S3_ENDPOINT'),
@@ -47,6 +49,13 @@ export class S3Service implements OnModuleDestroy {
         Key: key,
       }),
     );
+  }
+
+  getPublicUrl(key: string | null | undefined): string | null {
+    if (!key) return null;
+    const cleanPublicUrl = this.publicUrl.replace(/\/+$/, '');
+    const cleanKey = key.replace(/^\/+/, '');
+    return `${cleanPublicUrl}/${this.bucket}/${cleanKey}`;
   }
 
   onModuleDestroy(): void {
