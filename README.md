@@ -1,124 +1,267 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# User Management System API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+[![NestJS](https://img.shields.io/badge/NestJS-12-ea2845?style=flat-square&logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169e1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Prisma](https://img.shields.io/badge/Prisma-7-2d3748?style=flat-square&logo=prisma&logoColor=white)](https://www.prisma.io/)
+[![Swagger](https://img.shields.io/badge/Swagger-OpenAPI%203.0-85ea2d?style=flat-square&logo=swagger&logoColor=black)](https://swagger.io/)
+[![Vitest](https://img.shields.io/badge/Vitest-Testing-fcc72b?style=flat-square&logo=vitest&logoColor=black)](https://vitest.dev/)
+[![Oxlint](https://img.shields.io/badge/Oxlint-Linter-00d1b2?style=flat-square)](https://oxc.rs/)
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+A production-ready RESTful API backend built with **NestJS 12**, **PostgreSQL 17**, and **Prisma 7**. Featuring JWT authentication, S3-compatible file storage (MinIO / AWS S3) with magic-byte file validation, automated OpenAPI documentation, and local container orchestration with Docker Compose.
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## 🌟 Key Features
 
-## Project setup
+- **Authentication & Security**:
+  - Passport Local strategy for credential verification and secure bcrypt password hashing.
+  - Stateless JWT token issuance and verification with `JwtAuthGuard`.
+  - Type-safe `@CurrentUser()` custom decorator for extracting authenticated identity.
+- **User Management (CRUD)**:
+  - Full user lifecycle operations (create, read, update, delete).
+  - Robust request validation powered by `class-validator` and `ParseUUIDPipe`.
+- **S3-Compatible Avatar Storage**:
+  - Single-part image uploads via Multer interceptor.
+  - Deep file inspection using custom JPEG magic-byte header validator (`IsJpegValidator`).
+  - Storage integration with AWS S3 / MinIO via `@aws-sdk/client-s3` and public URL resolution.
+- **Enterprise-Grade Architecture**:
+  - Clean separation: `common/` (cross-cutting), `core/` (infrastructure), and `modules/` (domain logic).
+  - Global Prisma exception filter mapping database constraints to standard HTTP status codes.
+  - Centralized request/response logging middleware and transform interceptors.
+- **Auto-Generated Documentation**:
+  - Interactive OpenAPI/Swagger UI served at `/api-docs` with JWT Bearer authorization support.
+- **Modern Developer Tooling**:
+  - Native Node.js ES Modules (`"type": "module"`).
+  - Ultra-fast static analysis via **Oxlint** and unit testing via **Vitest**.
 
-```bash
-$ npm install
+---
+
+## 🏗️ System Architecture
+
+```mermaid
+flowchart TD
+    Client(["HTTP Client / Frontend / Swagger UI"])
+
+    subgraph NestJS App ["NestJS Application (Port 3000)"]
+        Middleware["Logger Middleware"]
+        Guards["JwtAuthGuard / LocalAuthGuard"]
+        Validation["ValidationPipe / ParseUUIDPipe"]
+
+        subgraph Controllers ["Controllers"]
+            AppCtrl["AppController (Health)"]
+            AuthCtrl["AuthController (/auth)"]
+            UsersCtrl["UsersController (/users)"]
+        end
+
+        subgraph Services ["Services & Logic"]
+            AuthSvc["AuthService"]
+            UsersSvc["UsersService"]
+            S3Svc["S3Service"]
+            PrismaSvc["PrismaService"]
+        end
+
+        Filters["Prisma & AllExceptions Filter"]
+    end
+
+    subgraph Infrastructure ["Local Infrastructure (Docker Compose)"]
+        PostgresDB[("PostgreSQL 17 (Port 5435)")]
+        MinioStorage[("MinIO S3 Storage (Port 9000/9001)")]
+    end
+
+    Client -->|HTTP Request| Middleware
+    Middleware --> Guards
+    Guards --> Validation
+    Validation --> Controllers
+
+    AuthCtrl --> AuthSvc
+    UsersCtrl --> UsersSvc
+    UsersSvc --> S3Svc
+    UsersSvc --> PrismaSvc
+    AuthSvc --> PrismaSvc
+
+    PrismaSvc -->|Prisma Client| PostgresDB
+    S3Svc -->|AWS SDK v3| MinioStorage
+    Controllers -.-> Filters
 ```
 
-## Compile and run the project
+---
+
+## 🛠️ Tech Stack
+
+| Layer                  | Technology                                                       | Description                                |
+| :--------------------- | :--------------------------------------------------------------- | :----------------------------------------- |
+| **Backend Framework**  | [NestJS 12](https://nestjs.com/)                                 | Progressive Node.js framework (ESM)        |
+| **Language**           | [TypeScript 5](https://www.typescriptlang.org/)                  | Strongly-typed JavaScript                  |
+| **Database**           | [PostgreSQL 17](https://www.postgresql.org/)                     | Relational database engine                 |
+| **ORM**                | [Prisma 7](https://www.prisma.io/)                               | Next-generation Node.js ORM                |
+| **Object Storage**     | [MinIO](https://min.io/) / [AWS S3](https://aws.amazon.com/s3/)  | S3-compatible cloud object storage         |
+| **Authentication**     | [Passport](https://www.passportjs.org/) + [JWT](https://jwt.io/) | Stateless token-based auth                 |
+| **API Documentation**  | [Swagger / OpenAPI 3.0](https://swagger.io/)                     | Auto-generated interactive API docs        |
+| **Testing**            | [Vitest](https://vitest.dev/)                                    | Vite-powered unit test runner              |
+| **Linter & Formatter** | [Oxlint](https://oxc.rs/) + [Prettier](https://prettier.io/)     | High-performance linter and code formatter |
+| **Containers**         | [Docker Compose](https://www.docker.com/)                        | Local containerized services               |
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- **Node.js**: `v20.x` or higher
+- **npm**: `v10.x` or higher
+- **Docker & Docker Compose**: Installed and running
+
+### 1. Clone & Install Dependencies
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+git clone <repository-url>
+cd user-management-system
+npm install
 ```
 
-## Run tests
+### 2. Environment Configuration
+
+Copy the example environment configuration file:
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+cp .env.example .env
 ```
 
-## Deployment
+Verify the default values in `.env`:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+```ini
+PORT=3000
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+# PostgreSQL
+POSTGRES_USER=postgredb
+POSTGRES_PASSWORD=postgredb
+POSTGRES_DB=user_management_system
+DATABASE_URL="postgresql://postgredb:postgredb@localhost:5435/user_management_system?schema=public"
+
+# JWT
+JWT_SECRET=super-secret-key-change-in-production
+JWT_EXPIRES_IN=1d
+
+# MinIO / S3
+S3_ENDPOINT=http://localhost:9000
+S3_REGION=us-east-1
+S3_BUCKET=user-avatars
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_FORCE_PATH_STYLE=true
+S3_PUBLIC_URL=http://localhost:9000/user-avatars
+```
+
+### 3. Start Database & Storage (Docker)
+
+Start the local PostgreSQL and MinIO instances in the background:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker compose up -d
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+- **PostgreSQL**: `localhost:5435`
+- **MinIO S3 API**: `localhost:9000`
+- **MinIO Web Console**: `http://localhost:9001` (User: `minioadmin`, Pass: `minioadmin`)
 
-## Observability
+### 4. Run Database Migrations
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project:
+Apply the Prisma schema to the database:
 
 ```bash
-$ npm install @nestjs/observe
+npx prisma db push
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/overview) - it takes a single import and an app key.
+### 5. Start the Application
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+```bash
+# Development mode with watch:
+npm run start:dev
 
-## Resources
+# Production build & run:
+npm run build
+npm run start:prod
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+Once started, the server will log:
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```text
+[Nest] ... LOG [Bootstrap] Application is running on: http://localhost:3000
+[Nest] ... LOG [Bootstrap] Swagger documentation: http://localhost:3000/api-docs
+```
 
-## Support
+---
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## 📖 API Documentation
 
-## Stay in touch
+Interactive Swagger documentation is available out-of-the-box at:
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+👉 **[http://localhost:3000/api-docs](http://localhost:3000/api-docs)**
 
-## License
+Raw OpenAPI JSON specification: `http://localhost:3000/api-docs-json`
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+### Authentication Flow in Swagger UI:
+
+1. Call `POST /auth/login` with your credentials (`email` and `password`).
+2. Copy the returned `access_token`.
+3. Click the **Authorize 🔓** button at the top right of Swagger UI.
+4. Enter `Bearer <your_token>` and click **Authorize**.
+5. All protected endpoints (`/users`, `/users/avatar`, `/auth/me`) are now unlocked for testing.
+
+---
+
+## 🧪 Testing & Code Quality
+
+```bash
+# Run type-aware linter (Oxlint)
+npm run lint
+
+# Format code with Prettier
+npm run format
+
+# Run unit tests (Vitest)
+npm test
+
+# Run e2e tests
+npm run test:e2e
+```
+
+---
+
+## 📂 Project Structure
+
+```text
+user-management-system/
+├── docker-compose.yml       # Local PostgreSQL 17 & MinIO containers
+├── nest-cli.json            # Nest CLI config with Swagger auto-generation plugin
+├── package.json             # Scripts & dependencies
+├── prisma/
+│   └── schema.prisma        # Prisma schema definitions
+├── src/
+│   ├── app.controller.ts    # Health check endpoint
+│   ├── app.module.ts        # Main application module
+│   ├── main.ts              # Entrypoint, Swagger & global pipes bootstrap
+│   ├── common/              # Shared guards, interceptors, filters, decorators
+│   ├── core/                # Core providers: Prisma database, S3 storage, env validation
+│   └── modules/
+│       ├── auth/            # Auth module (Passport local/jwt, token issuance)
+│       └── users/           # Users module (CRUD, avatar upload)
+├── AGENTS.md                # Operating guidelines for AI coding assistants
+└── GIT_GUIDELINES.md        # Branching, conventional commits & PR standards
+```
+
+---
+
+## 🤝 Contribution & Workflow
+
+This project adheres to **Trunk-Based Development** and **Conventional Commits**:
+
+- Refer to [GIT_GUIDELINES.md](file:///d:/VscodeProjects/user-management-system/GIT_GUIDELINES.md) for branch naming (`feat/`, `fix/`, `docs/`) and commit standards.
+- Refer to [AGENTS.md](file:///d:/VscodeProjects/user-management-system/AGENTS.md) when developing with AI coding agents.
+
+---
+
+## 📄 License
+
+This project is licensed under the UNLICENSED / MIT License.
