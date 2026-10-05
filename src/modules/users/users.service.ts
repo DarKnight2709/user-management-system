@@ -34,6 +34,7 @@ export class UsersService {
 
   async findAll(): Promise<User[]> {
     const users = await this.prismaService.user.findMany({
+      where: { deletedAt: null },
       omit: { hashedPassword: true },
     });
 
@@ -42,7 +43,7 @@ export class UsersService {
 
   async findOneByEmail(email: string): Promise<User | null> {
     const user = await this.prismaService.user.findUnique({
-      where: { email },
+      where: { email, deletedAt: null },
     });
     if (!user) return null;
     return this.toUserResponse(user);
@@ -50,7 +51,7 @@ export class UsersService {
 
   async findOne(id: string): Promise<User> {
     const existingUser = await this.prismaService.user.findUnique({
-      where: { id },
+      where: { id, deletedAt: null },
       omit: { hashedPassword: true },
     });
 
@@ -86,7 +87,7 @@ export class UsersService {
     }
 
     const updatedUser = await this.prismaService.user.update({
-      where: { id },
+      where: { id, deletedAt: null },
       data: updateData,
       omit: { hashedPassword: true },
     });
@@ -95,7 +96,10 @@ export class UsersService {
   }
 
   async delete(id: string): Promise<void> {
-    await this.prismaService.user.delete({ where: { id } });
+    await this.prismaService.user.update({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
   }
 
   async upload(
@@ -112,7 +116,7 @@ export class UsersService {
 
     try {
       await this.prismaService.user.update({
-        where: { id: userId },
+        where: { id: userId, deletedAt: null },
         data: { avatarKey: key },
       });
       return {
