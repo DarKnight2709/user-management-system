@@ -1,7 +1,13 @@
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { UsersService } from '@/modules/users/users.service.js';
+import { User } from '@/modules/users/interfaces/user.interface.js';
 export interface JwtPayload {
   sub: string;
   name: string;
@@ -10,7 +16,10 @@ export interface JwtPayload {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly usersService: UsersService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -19,12 +28,30 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   // password passes the decoded payload when completing verifying
-  async validate(payload: JwtPayload) {
+  async validate(payload: unknown) {
+    if (
+      typeof payload !== 'object' ||
+      payload === null ||
+      !('sub' in payload) ||
+      typeof payload.sub !== 'string' ||
+      payload.sub.trim().length === 0
+    ) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    let user: User;
+    try {
+      user = await this.usersService.findOne(payload.sub);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      throw error;
+    }
     // attached to req.user
     return {
-      id: payload.sub,
-      email: payload.email,
-      name: payload.name,
+      id: user.id,
+      email: user.email,
+      name: user.name,
     };
   }
 }
