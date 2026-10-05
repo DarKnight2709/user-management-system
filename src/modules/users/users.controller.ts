@@ -14,13 +14,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service.js';
 import { User } from './interfaces/user.interface.js';
 import { UserDto } from './dto/user.dto.js';
@@ -81,18 +75,6 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @Post('avatar')
   @ApiOperation({ summary: 'Upload user avatar (JPEG)' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-        },
-      },
-    },
-  })
   @UseInterceptors(AvatarUploadInterceptor)
   async upload(
     @CurrentUser('id') userId: string,
