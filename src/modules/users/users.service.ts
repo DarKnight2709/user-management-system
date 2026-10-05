@@ -21,7 +21,9 @@ export class UsersService {
   ) {}
 
   private toUserResponse(
-    user: UserModel | (Omit<UserModel, 'hashedPassword'> & { hashedPassword?: string }),
+    user:
+      | UserModel
+      | (Omit<UserModel, 'hashedPassword'> & { hashedPassword?: string }),
   ): User {
     const { avatarKey, ...rest } = user;
     return {
