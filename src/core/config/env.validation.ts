@@ -6,8 +6,15 @@ export const envValidationSchema = Joi.object({
     .valid('development', 'production', 'test')
     .default('development'),
   DATABASE_URL: Joi.string().required(),
-  JWT_SECRET: Joi.string().required(),
-  JWT_EXPIRES_IN: Joi.string().default('1d'),
+  JWT_ACCESS_TOKEN_SECRET: Joi.string().required(),
+  JWT_REFRESH_TOKEN_SECRET: Joi.string()
+    .invalid(Joi.ref('JWT_ACCESS_TOKEN_SECRET'))
+    .required(),
+  JWT_ACCESS_TOKEN_EXPIRES_IN: Joi.number().integer().positive().default(900),
+  JWT_REFRESH_TOKEN_EXPIRES_IN: Joi.number()
+    .integer()
+    .positive()
+    .default(604800),
 
   S3_ENDPOINT: Joi.string().uri().required(),
   S3_REGION: Joi.string().default('us-east-1'),

@@ -10,7 +10,7 @@ import { UsersService } from '@/modules/users/users.service.js';
 import { User } from '@/modules/users/interfaces/user.interface.js';
 export interface JwtPayload {
   sub: string;
-  name: string;
+  username: string;
   email: string;
 }
 
@@ -23,7 +23,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET') as string,
+      algorithms: ['HS256'],
+      secretOrKey: configService.get<string>(
+        'JWT_ACCESS_TOKEN_SECRET',
+      ) as string,
     });
   }
 
@@ -51,7 +54,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return {
       id: user.id,
       email: user.email,
-      name: user.name,
+      username: user.username,
     };
   }
 }

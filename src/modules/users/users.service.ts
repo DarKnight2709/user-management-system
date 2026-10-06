@@ -5,9 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { User } from './interfaces/user.interface.js';
-import { UserDto } from './dto/user.dto.js';
+import { CreateUserDto, UpdateUserDto } from './dto/user.dto.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
-import { hash } from '@/common/utils/hash.util.js';
 import { randomUUID } from 'crypto';
 import { S3Service } from '@/core/storage/s3.service.js';
 import type { UserModel } from '@/generated/prisma/models/User.js';
@@ -62,14 +61,9 @@ export class UsersService {
     return this.toUserResponse(existingUser);
   }
 
-  async create(user: UserDto): Promise<User> {
-    const { password, ...rest } = user;
-    const hashedPassword = await hash(password);
+  async create(user: CreateUserDto): Promise<User> {
     const newUser = await this.prismaService.user.create({
-      data: {
-        ...rest,
-        hashedPassword,
-      },
+      data: user,
       omit: {
         hashedPassword: true,
       },
@@ -78,17 +72,10 @@ export class UsersService {
     return this.toUserResponse(newUser);
   }
 
-  async update(id: string, updateUserDto: UserDto): Promise<User> {
-    const { password, ...rest } = updateUserDto;
-
-    const updateData: any = { ...rest };
-    if (password) {
-      updateData.hashedPassword = await hash(password);
-    }
-
+  async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
     const updatedUser = await this.prismaService.user.update({
       where: { id, deletedAt: null },
-      data: updateData,
+      data: updateUserDto,
       omit: { hashedPassword: true },
     });
 
@@ -96,9 +83,16 @@ export class UsersService {
   }
 
   async delete(id: string): Promise<void> {
-    await this.prismaService.user.update({
-      where: { id, deletedAt: null },
-      data: { deletedAt: new Date() },
+    await this.prismaService.$transaction(async (manager) => {
+      const now = new Date();
+      await manager.user.update({
+        where: { id, deletedAt: null },
+        data: { deletedAt: now },
+      });
+      await manager.refreshToken.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: now },
+      });
     });
   }
 

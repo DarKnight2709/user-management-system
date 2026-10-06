@@ -1,13 +1,31 @@
-import { OmitType } from '@nestjs/swagger';
 import {
   IsDate,
   IsEmail,
+  IsJWT,
   IsNotEmpty,
   IsString,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 
-export class CreateUserDto {
+export class LoginDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+}
+
+export class RefreshTokenDto {
+  @IsString()
+  @IsJWT()
+  @MaxLength(4096)
+  refreshToken: string;
+}
+
+export class RegisterDto {
   @IsString()
   @MinLength(1)
   @IsNotEmpty()
@@ -29,13 +47,9 @@ export class CreateUserDto {
 
   @IsString()
   @IsNotEmpty()
-  hashedPassword: string;
+  password: string;
 
   @IsDate()
   @IsNotEmpty()
   birthDate: Date;
 }
-
-export class UpdateUserDto extends OmitType(CreateUserDto, [
-  'hashedPassword',
-] as const) {}

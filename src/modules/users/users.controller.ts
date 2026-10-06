@@ -17,11 +17,11 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service.js';
 import { User } from './interfaces/user.interface.js';
-import { UserDto } from './dto/user.dto.js';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard.js';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { AvatarUploadInterceptor } from '@/common/interceptors/avatar-upload.interceptor.js';
 import { IsJpegValidator } from '@/common/validators/is-jpeg.validator.js';
+import { UpdateUserDto } from './dto/user.dto.js';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -44,21 +44,13 @@ export class UsersController {
     return this.usersService.findOne(id);
   }
 
-  // create
-  @UseGuards(JwtAuthGuard)
-  @Post()
-  @ApiOperation({ summary: 'Create user' })
-  async create(@Body() dto: UserDto): Promise<User> {
-    return this.usersService.create(dto);
-  }
-
   // update
   @UseGuards(JwtAuthGuard)
   @Put(':id')
   @ApiOperation({ summary: 'Update user by ID' })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UserDto,
+    @Body() dto: UpdateUserDto,
   ): Promise<User> {
     return this.usersService.update(id, dto);
   }
