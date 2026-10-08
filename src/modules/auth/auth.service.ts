@@ -123,9 +123,7 @@ export class AuthService {
         // Check token validity
         if (
           tokenEntity.user.deletedAt !== null ||
-          tokenEntity.expiresAt <= new Date() ||
-          (ipAddress && tokenEntity.ipAddress !== ipAddress) ||
-          (userAgent && tokenEntity.userAgent !== userAgent)
+          tokenEntity.expiresAt <= new Date()
         ) {
           throw new UnauthorizedException('Invalid refresh token');
         }
