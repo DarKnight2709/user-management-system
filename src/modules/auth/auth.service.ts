@@ -145,6 +145,7 @@ export class AuthService {
           userAgent,
           manager,
           tokenEntity.familyId,
+          new Date(Math.min(tokenEntity.expiresAt.getTime(), payload.exp * 1000)),
         );
 
         return {
@@ -279,18 +280,25 @@ export class AuthService {
     userAgent?: string,
     manager?: Prisma.TransactionClient,
     existingFamilyId?: string,
+    existingExpiresAt?: Date,
   ): Promise<string> {
     const jti = randomUUID();
     const refreshExpiresIn = this.config.getOrThrow<number>(
       'JWT_REFRESH_TOKEN_EXPIRES_IN',
     );
-    const payload = { sub: user.id, jti };
+    // Rotation preserves the session deadline; only login starts a new lifetime.
+    const expiresAtSeconds = existingExpiresAt
+      ? Math.floor(existingExpiresAt.getTime() / 1000)
+      : Math.floor(Date.now() / 1000) + refreshExpiresIn;
+    if (expiresAtSeconds <= Math.floor(Date.now() / 1000)) {
+      throw new UnauthorizedException('Refresh token expired');
+    }
+    const payload = { sub: user.id, jti, exp: expiresAtSeconds };
     const refreshToken = jwt.sign(
       payload,
       this.config.getOrThrow<string>('JWT_REFRESH_TOKEN_SECRET'),
       {
         algorithm: 'HS256',
-        expiresIn: refreshExpiresIn,
       },
     );
     const createData = {
@@ -298,7 +306,7 @@ export class AuthService {
       userId: user.id,
       familyId: existingFamilyId ?? randomUUID(),
       refreshTokenHash: this.hashToken(refreshToken),
-      expiresAt: new Date(Date.now() + refreshExpiresIn * 1000),
+      expiresAt: new Date(expiresAtSeconds * 1000),
       ipAddress,
       userAgent,
     };
