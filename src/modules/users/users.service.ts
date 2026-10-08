@@ -42,7 +42,7 @@ export class UsersService {
 
   async findOneByEmail(email: string): Promise<User | null> {
     const user = await this.prismaService.user.findUnique({
-      where: { email, deletedAt: null },
+      where: { email: email.trim().toLowerCase(), deletedAt: null },
     });
     if (!user) return null;
     return this.toUserResponse(user);
@@ -63,7 +63,10 @@ export class UsersService {
 
   async create(user: CreateUserDto): Promise<User> {
     const newUser = await this.prismaService.user.create({
-      data: user,
+      data: Object.assign({}, user, {
+        email: user.email.trim().toLowerCase(),
+        username: user.username.trim().toLowerCase(),
+      }),
       omit: {
         hashedPassword: true,
       },
@@ -75,7 +78,10 @@ export class UsersService {
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
     const updatedUser = await this.prismaService.user.update({
       where: { id, deletedAt: null },
-      data: updateUserDto,
+      data: Object.assign({}, updateUserDto, {
+        email: updateUserDto.email.trim().toLowerCase(),
+        username: updateUserDto.username.trim().toLowerCase(),
+      }),
       omit: { hashedPassword: true },
     });
 

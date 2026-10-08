@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsDate,
   IsEmail,
@@ -9,6 +10,9 @@ import {
 } from 'class-validator';
 
 export class LoginDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
   @IsEmail()
   @IsNotEmpty()
   email: string;
@@ -26,6 +30,9 @@ export class RefreshTokenDto {
 }
 
 export class RegisterDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
   @IsString()
   @MinLength(1)
   @IsNotEmpty()
@@ -41,6 +48,9 @@ export class RegisterDto {
   @IsNotEmpty()
   lastName: string;
 
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
   @IsEmail()
   @IsNotEmpty()
   email: string;

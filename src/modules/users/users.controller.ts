@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -30,6 +31,7 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   // get all users
+  // only admin
   @UseGuards(JwtAuthGuard)
   @Get()
   @ApiOperation({ summary: 'Get all users' })
@@ -37,22 +39,29 @@ export class UsersController {
     return this.usersService.findAll();
   }
 
+  // self or admin
   @UseGuards(JwtAuthGuard)
   @Get(':id')
   @ApiOperation({ summary: 'Get user by ID' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<User> {
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') currentUserId: string,
+  ): Promise<User> {
+    if (id !== currentUserId) {
+      throw new ForbiddenException('Access denied');
+    }
     return this.usersService.findOne(id);
   }
 
   // update
   @UseGuards(JwtAuthGuard)
-  @Put(':id')
+  @Put()
   @ApiOperation({ summary: 'Update user by ID' })
   async update(
-    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
+    @CurrentUser('id') currentUserId: string,
   ): Promise<User> {
-    return this.usersService.update(id, dto);
+    return this.usersService.update(currentUserId, dto);
   }
 
   // delete
@@ -60,8 +69,15 @@ export class UsersController {
   @Delete(':id')
   @ApiOperation({ summary: 'Delete user by ID' })
   @HttpCode(HttpStatus.NO_CONTENT) // Returns 204 No Content
-  async delete(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
-    return this.usersService.delete(id);
+  async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') currentUserId: string,
+  ): Promise<void> {
+    // or admin
+    if (id !== currentUserId) {
+      throw new ForbiddenException('Delete a ction not allowed');
+    }
+    return this.usersService.delete(currentUserId);
   }
 
   @UseGuards(JwtAuthGuard)
