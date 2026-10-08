@@ -177,13 +177,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const payload = this.verifyRefreshToken(refreshToken);
+    // Logout can revoke a session even after its token has expired.
+    const payload = this.verifyRefreshToken(refreshToken, {
+      ignoreExpiration: true,
+    });
     await this.prisma.$transaction(async (manager) => {
       const token = await manager.refreshToken.findUnique({
         where: { id: payload.jti },
       });
+      if (!token) return;
       if (
-        !token ||
         token.userId !== payload.sub ||
         token.refreshTokenHash !== this.hashToken(refreshToken)
       ) {
@@ -222,11 +225,17 @@ export class AuthService {
 
   // HELPERS
 
-  private verifyRefreshToken(token: string): JwtRefreshTokenPayload {
+  private verifyRefreshToken(
+    token: string,
+    options: { ignoreExpiration?: boolean } = {},
+  ): JwtRefreshTokenPayload {
     const secret = this.config.getOrThrow<string>('JWT_REFRESH_TOKEN_SECRET');
     let payload: unknown;
     try {
-      payload = jwt.verify(token, secret, { algorithms: ['HS256'] });
+      payload = jwt.verify(token, secret, {
+        algorithms: ['HS256'],
+        ignoreExpiration: options.ignoreExpiration ?? false,
+      });
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError)
         throw new UnauthorizedException('Refresh token expired');
