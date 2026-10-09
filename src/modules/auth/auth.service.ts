@@ -1,4 +1,9 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { UsersService } from '../users/users.service.js';
 import { compare, hash } from '@/common/utils/hash.util.js';
 import { RequestUser } from '@/common/decorators/current-user.decorator.js';
@@ -8,6 +13,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma } from '@/generated/prisma/client.js';
 import jwt from 'jsonwebtoken';
 import { RegisterDto } from './dto/auth.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
 
 export interface JwtRefreshTokenPayload {
   sub: string;
@@ -80,6 +86,52 @@ export class AuthService {
       lastName: dto.lastName,
       birthDate: dto.birthDate,
       email: emailInput,
+    });
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId, deletedAt: null },
+      select: { hashedPassword: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException('Invalid current password');
+    }
+
+    const isCurrentPasswordValid = await compare(
+      dto.currentPassword,
+      user.hashedPassword,
+    );
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Invalid current password');
+    }
+
+    const isSamePassword = await compare(dto.newPassword, user.hashedPassword);
+    if (isSamePassword) {
+      throw new BadRequestException(
+        'New password must differ from the current password',
+      );
+    }
+
+    const hashedPassword = await hash(dto.newPassword);
+    await this.prisma.serializableTransaction(async (manager) => {
+      const updated = await manager.user.updateMany({
+        where: {
+          id: userId,
+          deletedAt: null,
+          hashedPassword: user.hashedPassword,
+        },
+        data: { hashedPassword },
+      });
+      if (updated.count !== 1) {
+        throw new UnauthorizedException(
+          'Account or password changed; authenticate again',
+        );
+      }
+      await manager.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
     });
   }
 

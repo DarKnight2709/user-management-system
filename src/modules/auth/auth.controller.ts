@@ -18,6 +18,7 @@ import {
 } from '@/common/decorators/current-user.decorator.js';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { LoginDto, RefreshTokenDto, RegisterDto } from './dto/auth.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -39,6 +40,18 @@ export class AuthController {
   @ApiBody({ type: RegisterDto })
   async register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Change your password and revoke refresh sessions' })
+  async changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<void> {
+    await this.authService.changePassword(userId, dto);
   }
 
   @Post('logout')
