@@ -89,7 +89,7 @@ export class UsersService {
   }
 
   async delete(id: string): Promise<void> {
-    await this.prismaService.$transaction(async (manager) => {
+    await this.prismaService.serializableTransaction(async (manager) => {
       const now = new Date();
       await manager.user.update({
         where: { id, deletedAt: null },

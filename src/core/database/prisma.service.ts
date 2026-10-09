@@ -59,6 +59,28 @@ export class PrismaService
     });
   }
 
+  async serializableTransaction<T>(
+    operation: (manager: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        const isTransactionConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034';
+
+        if (!isTransactionConflict || attempt >= maxAttempts) {
+          throw error;
+        }
+      }
+    }
+  }
+
   async onModuleInit() {
     await this.$connect();
   }

@@ -49,18 +49,20 @@ export class AuthService {
 
   async login(user: RequestUser, ipAddress?: string, userAgent?: string) {
     const accessToken = this.generateAccessToken(user);
-    const refreshToken = await this.prisma.$transaction(async (manager) => {
-      const activeUser = await manager.user.findUnique({
-        where: { id: user.id, deletedAt: null },
-      });
-      if (!activeUser) throw new UnauthorizedException('Invalid credentials');
-      return this.generateRefreshToken(
-        activeUser,
-        ipAddress,
-        userAgent,
-        manager,
-      );
-    });
+    const refreshToken = await this.prisma.serializableTransaction(
+      async (manager) => {
+        const activeUser = await manager.user.findUnique({
+          where: { id: user.id, deletedAt: null },
+        });
+        if (!activeUser) throw new UnauthorizedException('Invalid credentials');
+        return this.generateRefreshToken(
+          activeUser,
+          ipAddress,
+          userAgent,
+          manager,
+        );
+      },
+    );
     return { accessToken, refreshToken };
   }
 
@@ -97,62 +99,66 @@ export class AuthService {
       const jti = payload.jti;
 
       // 2. Perform rotation in a single transaction
-      const result = await this.prisma.$transaction(async (manager) => {
-        const tokenEntity = await manager.refreshToken.findUnique({
-          where: { id: jti },
-          include: { user: true },
-        });
-
-        if (
-          !tokenEntity ||
-          tokenEntity.userId !== payload.sub ||
-          tokenEntity.refreshTokenHash !== this.hashToken(refreshToken)
-        ) {
-          throw new UnauthorizedException('Invalid refresh token');
-        }
-
-        // Return after revocation so it commits before the request is rejected.
-        if (tokenEntity?.revokedAt) {
-          await manager.refreshToken.updateMany({
-            where: { familyId: tokenEntity.familyId, revokedAt: null },
-            data: { revokedAt: new Date() },
+      const result = await this.prisma.serializableTransaction(
+        async (manager) => {
+          const tokenEntity = await manager.refreshToken.findUnique({
+            where: { id: jti },
+            include: { user: true },
           });
-          return null;
-        }
 
-        // Check token validity
-        if (
-          tokenEntity.user.deletedAt !== null ||
-          tokenEntity.expiresAt <= new Date()
-        ) {
-          throw new UnauthorizedException('Invalid refresh token');
-        }
+          if (
+            !tokenEntity ||
+            tokenEntity.userId !== payload.sub ||
+            tokenEntity.refreshTokenHash !== this.hashToken(refreshToken)
+          ) {
+            throw new UnauthorizedException('Invalid refresh token');
+          }
 
-        // Revoke current token
-        const now = new Date();
-        const consumed = await manager.refreshToken.updateMany({
-          where: { id: jti, revokedAt: null, expiresAt: { gt: now } },
-          data: { revokedAt: now },
-        });
-        if (consumed.count !== 1)
-          throw new UnauthorizedException('Invalid refresh token');
+          // Return after revocation so it commits before the request is rejected.
+          if (tokenEntity?.revokedAt) {
+            await manager.refreshToken.updateMany({
+              where: { familyId: tokenEntity.familyId, revokedAt: null },
+              data: { revokedAt: new Date() },
+            });
+            return null;
+          }
 
-        // Generate new pair
-        const newAccessToken = this.generateAccessToken(tokenEntity.user);
-        const newRefreshToken = await this.generateRefreshToken(
-          tokenEntity.user,
-          ipAddress,
-          userAgent,
-          manager,
-          tokenEntity.familyId,
-          new Date(Math.min(tokenEntity.expiresAt.getTime(), payload.exp * 1000)),
-        );
+          // Check token validity
+          if (
+            tokenEntity.user.deletedAt !== null ||
+            tokenEntity.expiresAt <= new Date()
+          ) {
+            throw new UnauthorizedException('Invalid refresh token');
+          }
 
-        return {
-          accessToken: newAccessToken,
-          refreshToken: newRefreshToken,
-        };
-      });
+          // Revoke current token
+          const now = new Date();
+          const consumed = await manager.refreshToken.updateMany({
+            where: { id: jti, revokedAt: null, expiresAt: { gt: now } },
+            data: { revokedAt: now },
+          });
+          if (consumed.count !== 1)
+            throw new UnauthorizedException('Invalid refresh token');
+
+          // Generate new pair
+          const newAccessToken = this.generateAccessToken(tokenEntity.user);
+          const newRefreshToken = await this.generateRefreshToken(
+            tokenEntity.user,
+            ipAddress,
+            userAgent,
+            manager,
+            tokenEntity.familyId,
+            new Date(
+              Math.min(tokenEntity.expiresAt.getTime(), payload.exp * 1000),
+            ),
+          );
+
+          return {
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+          };
+        },
+      );
 
       if (!result) {
         throw new UnauthorizedException('Refresh token reuse detected');
@@ -182,7 +188,7 @@ export class AuthService {
     const payload = this.verifyRefreshToken(refreshToken, {
       ignoreExpiration: true,
     });
-    await this.prisma.$transaction(async (manager) => {
+    await this.prisma.serializableTransaction(async (manager) => {
       const token = await manager.refreshToken.findUnique({
         where: { id: payload.jti },
       });
@@ -206,7 +212,7 @@ export class AuthService {
     }
 
     try {
-      await this.prisma.$transaction(async (manager) =>
+      await this.prisma.serializableTransaction(async (manager) =>
         manager.refreshToken.updateMany({
           where: {
             userId,
