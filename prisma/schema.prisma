@@ -4,28 +4,35 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
   provider = "postgresql"
 }
 
+enum MemberStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  username      String  @unique
-  firstName String   @map("first_name")
-  lastName  String   @map("last_name")
-  birthDate       DateTime @map("birth_date")
-  hashedPassword String@map("hashed_password")
-  avatarKey String? @map("avatar_key")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
-  refreshTokens RefreshToken[]
+  id                  String               @id @default(uuid())
+  email               String               @unique
+  username            String               @unique
+  firstName           String               @map("first_name")
+  lastName            String               @map("last_name")
+  birthDate           DateTime             @map("birth_date")
+  hashedPassword      String               @map("hashed_password")
+  avatarKey           String?              @map("avatar_key")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  deletedAt           DateTime?            @map("deleted_at")
+  refreshTokens       RefreshToken[]
+  organizationMembers OrganizationMember[]
 
   @@map("users")
 }
@@ -44,4 +51,103 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
+}
+
+model Organization {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  members OrganizationMember[]
+  roles   Role[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  userId         String       @map("user_id")
+  status         MemberStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  deletedAt      DateTime?    @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  memberRoles  MemberRole[]
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Role {
+  id             String    @id @default(uuid())
+  name           String    @map("name")
+  organizationId String?   @map("organization_id")
+  isSystem       Boolean   @default(false) @map("is_system")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  memberRoles     MemberRole[]
+  rolePermissions RolePermission[]
+
+  @@unique([name, organizationId])
+  @@unique([name], where: { organizationId: null }, map: "roles_global_name_key")
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model MemberRole {
+  id                   String    @id @default(uuid())
+  organizationMemberId String    @map("organization_member_id")
+  roleId               String    @map("role_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  organizationMember OrganizationMember @relation(fields: [organizationMemberId], references: [id], onDelete: Restrict)
+  role               Role               @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationMemberId, roleId])
+  @@map("member_roles")
+}
+
+model RolePermission {
+  id           String    @id @default(uuid())
+  roleId       String    @map("role_id")
+  permissionId String    @map("permission_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Permission {
+  id          String    @id @default(uuid())
+  action      String
+  resource    String
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  rolePermissions RolePermission[]
+
+  @@unique([action, resource])
+  @@map("permissions")
 }
