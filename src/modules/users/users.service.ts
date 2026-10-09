@@ -78,10 +78,13 @@ export class UsersService {
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
     const updatedUser = await this.prismaService.user.update({
       where: { id, deletedAt: null },
-      data: Object.assign({}, updateUserDto, {
-        email: updateUserDto.email.trim().toLowerCase(),
+      data: {
         username: updateUserDto.username.trim().toLowerCase(),
-      }),
+        email: updateUserDto.email.trim().toLowerCase(),
+        firstName: updateUserDto.firstName,
+        lastName: updateUserDto.lastName,
+        birthDate: updateUserDto.birthDate,
+      },
       omit: { hashedPassword: true },
     });
 
