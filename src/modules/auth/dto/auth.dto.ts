@@ -1,14 +1,35 @@
-import { OmitType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsDate,
   IsEmail,
+  IsJWT,
   IsNotEmpty,
   IsString,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 
-export class CreateUserDto {
+export class LoginDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+}
+
+export class RefreshTokenDto {
+  @IsString()
+  @IsJWT()
+  @MaxLength(4096)
+  refreshToken: string;
+}
+
+export class RegisterDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
@@ -36,13 +57,9 @@ export class CreateUserDto {
 
   @IsString()
   @IsNotEmpty()
-  hashedPassword: string;
+  password: string;
 
   @IsDate()
   @IsNotEmpty()
   birthDate: Date;
 }
-
-export class UpdateUserDto extends OmitType(CreateUserDto, [
-  'hashedPassword',
-] as const) {}
