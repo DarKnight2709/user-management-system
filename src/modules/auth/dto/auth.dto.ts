@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsByteLength,
   IsDate,
   IsEmail,
   IsJWT,
@@ -57,6 +58,10 @@ export class RegisterDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(15)
+  @IsByteLength(0, 72, {
+    message: 'password must not exceed 72 UTF-8 bytes',
+  })
   password: string;
 
   @IsDate()

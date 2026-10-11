@@ -1,15 +1,26 @@
 import Joi from 'joi';
 
+const jwtSecretSchema = Joi.string()
+  .min(64)
+  .pattern(/\s/, { invert: true })
+  .messages({
+    'string.pattern.invert.base': '{{#label}} must not contain whitespace',
+  })
+  .required();
+
 export const envValidationSchema = Joi.object({
   PORT: Joi.number().default(3000),
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development'),
   DATABASE_URL: Joi.string().required(),
-  JWT_ACCESS_TOKEN_SECRET: Joi.string().required(),
-  JWT_REFRESH_TOKEN_SECRET: Joi.string()
+  JWT_ACCESS_TOKEN_SECRET: jwtSecretSchema,
+  JWT_REFRESH_TOKEN_SECRET: jwtSecretSchema
     .invalid(Joi.ref('JWT_ACCESS_TOKEN_SECRET'))
-    .required(),
+    .messages({
+      'any.invalid':
+        'JWT_REFRESH_TOKEN_SECRET must differ from JWT_ACCESS_TOKEN_SECRET',
+    }),
   JWT_ACCESS_TOKEN_EXPIRES_IN: Joi.number().integer().positive().default(900),
   JWT_REFRESH_TOKEN_EXPIRES_IN: Joi.number()
     .integer()

@@ -128,30 +128,47 @@ Copy the example environment configuration file:
 cp .env.example .env
 ```
 
-Verify the default values in `.env`:
+Configure `.env` with your environment values. The database and storage values
+below are for local development; JWT secrets must be generated separately:
 
 ```ini
 PORT=3000
 
 # PostgreSQL
-POSTGRES_USER=postgredb
-POSTGRES_PASSWORD=postgredb
+POSTGRES_USER=
+POSTGRES_PASSWORD=
 POSTGRES_DB=user_management_system
-DATABASE_URL="postgresql://postgredb:postgredb@localhost:5435/user_management_system?schema=public"
+DATABASE_URL=
 
 # JWT
-JWT_SECRET=super-secret-key-change-in-production
-JWT_EXPIRES_IN=1d
+JWT_ACCESS_TOKEN_SECRET=
+JWT_REFRESH_TOKEN_SECRET=
+JWT_ACCESS_TOKEN_EXPIRES_IN=900
+JWT_REFRESH_TOKEN_EXPIRES_IN=604800
 
 # MinIO / S3
 S3_ENDPOINT=http://localhost:9000
 S3_REGION=us-east-1
 S3_BUCKET=user-avatars
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin
+S3_ACCESS_KEY=
+S3_SECRET_KEY=
 S3_FORCE_PATH_STYLE=true
 S3_PUBLIC_URL=http://localhost:9000/user-avatars
 ```
+
+Fill the empty database and storage fields with your configured credentials.
+Generate each JWT secret separately using this command (run it twice):
+
+```bash
+node --input-type=module -e "import { randomBytes } from 'node:crypto'; console.log(randomBytes(32).toString('hex'));"
+```
+
+Put the two results into `JWT_ACCESS_TOKEN_SECRET` and `JWT_REFRESH_TOKEN_SECRET`
+in your private `.env` or deployment secret store. Each secret must have at least
+64 characters, contain no whitespace, and differ from the other secret. Length
+alone does not establish randomness. Never commit or share real secrets, and use
+different secrets for development and production. Replace any exposed secret;
+changing a signing secret invalidates tokens signed with its previous value.
 
 ### 3. Start Database & Storage (Docker)
 
@@ -163,7 +180,7 @@ docker compose up -d
 
 - **PostgreSQL**: `localhost:5435`
 - **MinIO S3 API**: `localhost:9000`
-- **MinIO Web Console**: `http://localhost:9001` (User: `minioadmin`, Pass: `minioadmin`)
+- **MinIO Web Console**: `http://localhost:9001` (use your configured credentials)
 
 ### 4. Run Database Migrations
 
