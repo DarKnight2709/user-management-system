@@ -231,7 +231,7 @@ export class AuthService {
       throw error;
     }
   }
-  async logout(refreshToken: string): Promise<void> {
+  async logout(refreshToken: string, userId: string): Promise<void> {
     if (!refreshToken) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -240,12 +240,16 @@ export class AuthService {
     const payload = this.verifyRefreshToken(refreshToken, {
       ignoreExpiration: true,
     });
+    if (payload.sub !== userId) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
     await this.prisma.serializableTransaction(async (manager) => {
       const token = await manager.refreshToken.findUnique({
         where: { id: payload.jti },
       });
       if (!token) return;
       if (
+        token.userId !== userId ||
         token.userId !== payload.sub ||
         token.refreshTokenHash !== this.hashToken(refreshToken)
       ) {
