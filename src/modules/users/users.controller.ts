@@ -7,7 +7,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseFilePipe,
   ParseUUIDPipe,
   Post,
   Put,
@@ -19,7 +18,7 @@ import { UsersService } from './users.service.js';
 import { User } from './interfaces/user.interface.js';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { AvatarUploadInterceptor } from '@/common/interceptors/avatar-upload.interceptor.js';
-import { IsJpegValidator } from '@/common/validators/is-jpeg.validator.js';
+import { JpegAvatarPipe } from '@/common/pipes/jpeg-avatar.pipe.js';
 import { UpdateUserDto } from './dto/user.dto.js';
 
 @ApiTags('Users')
@@ -79,13 +78,7 @@ export class UsersController {
   @UseInterceptors(AvatarUploadInterceptor)
   async upload(
     @CurrentUser('id') userId: string,
-    @UploadedFile(
-      new ParseFilePipe({
-        validators: [new IsJpegValidator()],
-        errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-        fileIsRequired: true,
-      }),
-    )
+    @UploadedFile(new JpegAvatarPipe())
     file: Express.Multer.File,
   ) {
     return this.usersService.upload(userId, file);

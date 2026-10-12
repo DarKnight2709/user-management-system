@@ -23,7 +23,7 @@ A production-ready RESTful API backend built with **NestJS 12**, **PostgreSQL 17
   - Robust request validation powered by `class-validator` and `ParseUUIDPipe`.
 - **S3-Compatible Avatar Storage**:
   - Single-part image uploads via Multer interceptor.
-  - Deep file inspection using custom JPEG magic-byte header validator (`IsJpegValidator`).
+  - JPEG signature filtering followed by decoding and re-encoding with Sharp; input is limited to 16 million pixels. EXIF orientation is applied, images are resized to fit within 1024 × 1024 pixels while preserving aspect ratio without enlarging smaller images, and metadata is stripped. The upload accepts one file and no text fields. Both the input and processed JPEG are limited to 2 MB (2,097,152 bytes); oversized output is rejected with HTTP 413. The stored JPEG may differ in size and quality.
   - Storage integration with AWS S3 / MinIO via `@aws-sdk/client-s3` and public URL resolution.
 - **Enterprise-Grade Architecture**:
   - Clean separation: `common/` (cross-cutting), `core/` (infrastructure), and `modules/` (domain logic).
