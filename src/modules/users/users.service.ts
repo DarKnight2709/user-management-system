@@ -114,7 +114,7 @@ export class UsersService {
     }
     await this.findOne(userId);
 
-    const key = `avatars/${userId}-${randomUUID()}.jpg`;
+    const key = `${userId}-${randomUUID()}.jpg`;
     await this.s3Service.upload(key, file.buffer, 'image/jpeg');
 
     try {

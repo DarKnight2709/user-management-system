@@ -149,11 +149,11 @@ JWT_REFRESH_TOKEN_EXPIRES_IN=604800
 # MinIO / S3
 S3_ENDPOINT=http://localhost:9000
 S3_REGION=us-east-1
-S3_BUCKET=user-avatars
+S3_BUCKET=avatars
 S3_ACCESS_KEY=
 S3_SECRET_KEY=
 S3_FORCE_PATH_STYLE=true
-S3_PUBLIC_URL=http://localhost:9000/user-avatars
+S3_PUBLIC_URL=http://localhost:9000
 ```
 
 Fill the empty database and storage fields with your configured credentials.
