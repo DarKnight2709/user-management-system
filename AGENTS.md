@@ -61,6 +61,13 @@ src/
    - Always inject `PrismaService` from `@/core/database/prisma.service.js`.
 4. **File Storage**:
    - Use `S3Service` from `@/core/storage/s3.service.js` for uploads/downloads.
+   - `S3_PUBLIC_URL` is the public storage origin without the bucket. URL construction appends the configured bucket and the exact stored object key.
+   - New avatar keys are filenames without an `avatars/` prefix. Preserve existing keys unless their objects are moved too.
+   - Local Compose initialization creates `avatars` and applies `docker/minio/avatars-policy.json`. Keep the bucket name consistent with `S3_BUCKET` and the policy resource ARNs.
+   - The policy permits anonymous object reads and bucket-location reads, but grants no anonymous writes, deletes, or listing. Public avatar URLs do not require application authentication.
+   - Bucket creation belongs in infrastructure setup, not the upload request. Rerunning initialization preserves objects and replaces the bucket policy with the checked-in JSON.
+   - `minio-init` reuses the MinIO image's bundled `mc` and sets `pull_policy: never`. The image must already be available locally; fresh-machine image provisioning remains unresolved. Do not claim registry availability or fresh-install verification based only on cached images.
+   - Do not delete buckets or storage volumes as a routine verification step; stored database keys would point to missing objects.
 5. **Exception Handling**:
    - Throw standard NestJS HTTP exceptions (`NotFoundException`, `ConflictException`, etc.).
    - Global filters handle Prisma and general exceptions.
