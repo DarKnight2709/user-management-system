@@ -8,6 +8,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { PrismaClient, Prisma } from '@/generated/prisma/client.js';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 @Injectable()
 export class PrismaService
   extends PrismaClient
@@ -43,16 +44,40 @@ export class PrismaService
 
     // 4. Log queries: log all queries in development, and warn on slow queries (>100ms)
     (this as any).$on('query', (e: Prisma.QueryEvent) => {
-      if (isDevelopment) {
-        Logger.log(
-          `Query: ${e.query} -- params: ${e.params} (${e.duration}ms)`,
+      const logDatabaseQueries =
+        isDevelopment &&
+        configService.get<boolean>('LOG_DATABASE_QUERIES') === true;
+
+      const isSlowQuery = e.duration >= 100;
+
+      if (!logDatabaseQueries && !isSlowQuery) {
+        return;
+      }
+
+      const queryFingerprint = createHash('sha256')
+        .update(e.query)
+        .digest('hex');
+
+      if (logDatabaseQueries) {
+        Logger.debug(
+          {
+            event: 'database_query',
+            queryFingerprint,
+            query: e.query,
+            durationMs: e.duration,
+          },
           'PrismaService',
         );
       }
 
-      if (e.duration >= 100) {
+      if (isSlowQuery) {
         Logger.warn(
-          `⚠️ SLOW QUERY (${e.duration}ms): ${e.query} -- params: ${e.params}`,
+          {
+            event: 'slow_database_query',
+            queryFingerprint,
+            durationMs: e.duration,
+            thresholdMs: 100,
+          },
           'PrismaService',
         );
       }

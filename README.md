@@ -163,6 +163,11 @@ For example, bucket `avatars` and key `example.jpg` produce
 filename; existing keys with an `avatars/` prefix must remain unchanged unless
 the corresponding objects are also moved.
 
+`LOG_DATABASE_QUERIES` defaults to `false` when omitted. Setting it to `true`
+enables SQL DEBUG logs only when `NODE_ENV=development`. SQL text may contain
+sensitive literals; enable it only temporarily with suitable development data.
+Slow-query warnings remain enabled in every environment.
+
 Fill the empty database and storage fields with your configured credentials.
 Generate each JWT secret separately using this command (run it twice):
 
