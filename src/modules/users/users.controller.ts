@@ -32,7 +32,6 @@ export class UsersController {
 
   // get all users
   // only admin
-  @UseGuards(JwtAuthGuard)
   @Get()
   @ApiOperation({ summary: 'Get all users' })
   async findAll(): Promise<User[]> {
@@ -40,7 +39,6 @@ export class UsersController {
   }
 
   // self or admin
-  @UseGuards(JwtAuthGuard)
   @Get(':id')
   @ApiOperation({ summary: 'Get user by ID' })
   async findOne(
@@ -54,7 +52,6 @@ export class UsersController {
   }
 
   // update
-  @UseGuards(JwtAuthGuard)
   @Put()
   @ApiOperation({ summary: 'Update user by ID' })
   async update(
@@ -65,7 +62,6 @@ export class UsersController {
   }
 
   // delete
-  @UseGuards(JwtAuthGuard)
   @Delete(':id')
   @ApiOperation({ summary: 'Delete user by ID' })
   @HttpCode(HttpStatus.NO_CONTENT) // Returns 204 No Content
@@ -80,7 +76,6 @@ export class UsersController {
     return this.usersService.delete(currentUserId);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('avatar')
   @ApiOperation({ summary: 'Upload user avatar (JPEG)' })
   @UseInterceptors(AvatarUploadInterceptor)
