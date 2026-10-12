@@ -149,12 +149,19 @@ JWT_REFRESH_TOKEN_EXPIRES_IN=604800
 # MinIO / S3
 S3_ENDPOINT=http://localhost:9000
 S3_REGION=us-east-1
-S3_BUCKET=user-avatars
+S3_BUCKET=avatars
 S3_ACCESS_KEY=
 S3_SECRET_KEY=
 S3_FORCE_PATH_STYLE=true
-S3_PUBLIC_URL=http://localhost:9000/user-avatars
+S3_PUBLIC_URL=http://localhost:9000
 ```
+
+`S3_PUBLIC_URL` is the public storage origin, without the bucket name.
+`S3Service.getPublicUrl()` appends `S3_BUCKET` and the stored object key.
+For example, bucket `avatars` and key `example.jpg` produce
+`http://localhost:9000/avatars/example.jpg`. New avatar keys contain only the
+filename; existing keys with an `avatars/` prefix must remain unchanged unless
+the corresponding objects are also moved.
 
 Fill the empty database and storage fields with your configured credentials.
 Generate each JWT secret separately using this command (run it twice):
@@ -181,6 +188,39 @@ docker compose up -d
 - **PostgreSQL**: `localhost:5435`
 - **MinIO S3 API**: `localhost:9000`
 - **MinIO Web Console**: `http://localhost:9001` (use your configured credentials)
+
+The `minio-init` service reuses the MinIO image's bundled `mc` client. It retries
+connection/authentication, creates the `avatars` bucket if missing, and applies
+`docker/minio/avatars-policy.json`. Existing objects are preserved, but the
+bucket policy is replaced with the policy in that file. The initializer reuses
+MinIO's credentials through a YAML anchor; the application's S3 credentials must
+also permit uploads and deletes in this bucket.
+
+Check initialization before uploading avatars:
+
+```bash
+docker compose logs minio-init
+docker compose ps -a minio-init
+```
+
+Expect `Avatar bucket initialization completed.` and exit code `0`. An exited
+initializer is normal. To rerun setup explicitly:
+
+```bash
+docker compose run --rm minio-init
+```
+
+The policy allows anonymous object downloads and bucket-location reads. It does
+not grant anonymous uploads, deletes, or object listing. Anyone who can reach
+an avatar's plain URL can view or download it without application login.
+
+**Local image requirement:** `minio-init` uses `pull_policy: never`, so
+`quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z` must already exist in the local
+Docker image cache. This workaround was verified locally after registry pulls
+failed. Image provisioning for a fresh machine remains unresolved; this setup
+does not guarantee a successful first-time installation without that image.
+Do not delete the bucket or Docker volumes to rerun initialization: deleting
+objects leaves existing database avatar keys pointing to missing files.
 
 ### 4. Run Database Migrations
 
