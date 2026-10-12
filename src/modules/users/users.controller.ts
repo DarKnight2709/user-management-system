@@ -12,13 +12,11 @@ import {
   Post,
   Put,
   UploadedFile,
-  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service.js';
 import { User } from './interfaces/user.interface.js';
-import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard.js';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { AvatarUploadInterceptor } from '@/common/interceptors/avatar-upload.interceptor.js';
 import { IsJpegValidator } from '@/common/validators/is-jpeg.validator.js';
