@@ -186,6 +186,26 @@ changing a signing secret invalidates tokens signed with its previous value.
 
 Start the local PostgreSQL and MinIO instances in the background:
 
+`docker-compose.yml` is for local development. Published PostgreSQL and MinIO
+ports bind to `127.0.0.1`, so they are accessible from this machine. Containers
+communicate through their Compose service names on the internal Docker network.
+Production deployment requires its own networking, secret management, and
+service access configuration.
+
+Compose reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
+`S3_ACCESS_KEY`, and `S3_SECRET_KEY` from the private `.env` or shell environment.
+Missing or empty values stop setup. Keep `DATABASE_URL` consistent with the
+actual PostgreSQL credentials; URL-encode special characters in its credentials.
+For this local setup, the S3 credentials also configure MinIO's root account and
+are shared with the initializer. Production should use a restricted application
+account instead of root credentials.
+
+For an existing PostgreSQL volume, keep the credentials of the existing database.
+Changing the Compose environment does not update an existing database role's
+password or recreate users/databases. Credential rotation requires changing the
+role inside PostgreSQL and updating the application's connection configuration.
+Do not delete the volume to rotate credentials.
+
 ```bash
 docker compose up -d
 ```

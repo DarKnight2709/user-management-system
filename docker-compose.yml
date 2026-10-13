@@ -1,14 +1,15 @@
+# Local development only. Production requires separate deployment configuration.
 services:
   postgres:
     image: postgres:17
     container_name: user_system-postgres
     restart: always
     environment:
-      POSTGRES_USER: postgredb
-      POSTGRES_PASSWORD: postgredb
-      POSTGRES_DB: user_management_system
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     ports:
-      - '5435:5432'
+      - '127.0.0.1:5435:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
   minio:
@@ -17,11 +18,11 @@ services:
     restart: always
     command: server /data --console-address ":9001"
     environment: &minio-credentials
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
     volumes:
       - minio_data:/data
   minio-init:
