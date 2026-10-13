@@ -39,6 +39,7 @@ export class S3Service implements OnModuleDestroy {
         Body: buffer,
         ContentType: contentType,
       }),
+      { abortSignal: AbortSignal.timeout(30_000) },
     );
   }
 
@@ -48,6 +49,7 @@ export class S3Service implements OnModuleDestroy {
         Bucket: this.bucket,
         Key: key,
       }),
+      { abortSignal: AbortSignal.timeout(30_000) },
     );
   }
 
