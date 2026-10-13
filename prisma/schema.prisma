@@ -37,6 +37,20 @@ model User {
   @@map("users")
 }
 
+
+model AvatarCleanupTask {
+  id            String    @id @default(uuid())
+  objectKey     String    @unique @map("object_key")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  leaseToken    String?   @map("lease_token")
+  leaseUntil    DateTime? @map("lease_until")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([nextAttemptAt])
+  @@map("avatar_cleanup_tasks")
+}
+
 model RefreshToken {
   id               String    @id @default(uuid())
   refreshTokenHash String    @unique @map("refresh_token_hash")

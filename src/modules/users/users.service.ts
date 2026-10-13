@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { User } from './interfaces/user.interface.js';
@@ -10,13 +9,14 @@ import { PrismaService } from '@/core/database/prisma.service.js';
 import { randomUUID } from 'crypto';
 import { S3Service } from '@/core/storage/s3.service.js';
 import type { UserModel } from '@/generated/prisma/models/User.js';
+import { AvatarCleanupService } from './avatar-cleanup.service.js';
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name);
   constructor(
     private readonly prismaService: PrismaService,
     private readonly s3Service: S3Service,
+    private readonly avatarCleanup: AvatarCleanupService,
   ) {}
 
   private toUserResponse(
@@ -115,25 +115,45 @@ export class UsersService {
     await this.findOne(userId);
 
     const key = `${userId}-${randomUUID()}.jpg`;
+    // Persist recovery before touching storage. A crash leaves a retryable task.
+    // Keep a grace period because a timed-out upload may still finish in storage.
+    await this.prismaService.avatarCleanupTask.create({
+      data: { objectKey: key, nextAttemptAt: new Date(Date.now() + 3_600_000) },
+    });
     await this.s3Service.upload(key, file.buffer, 'image/jpeg');
-
-    try {
-      await this.prismaService.user.update({
+    await this.prismaService.serializableTransaction(async (manager) => {
+      // read the current avatar key
+      const user = await manager.user.findUnique({
+        where: {
+          id: userId,
+          deletedAt: null,
+        },
+        select: {
+          avatarKey: true,
+        },
+      });
+      if (!user) throw new NotFoundException('User not found');
+      // update with the new key
+      await manager.user.update({
         where: { id: userId, deletedAt: null },
         data: { avatarKey: key },
       });
-      return {
-        key,
-        avatarUrl: this.s3Service.getPublicUrl(key),
-      };
-    } catch (databaseError) {
-      try {
-        await this.s3Service.delete(key);
-        this.logger.warn(`Roll back object: ${key}`);
-      } catch (deleteError) {
-        this.logger.error('Failed to delete key', deleteError);
+      if (user.avatarKey) {
+        await manager.avatarCleanupTask.upsert({
+          where: { objectKey: user.avatarKey },
+          create: { objectKey: user.avatarKey },
+          update: { nextAttemptAt: new Date() },
+        });
       }
-      throw databaseError;
-    }
+      // New object is now owned by the user; cancel its recovery task.
+      await manager.avatarCleanupTask.delete({ where: { objectKey: key } });
+    });
+
+    void this.avatarCleanup.processDue();
+
+    return {
+      key,
+      avatarUrl: this.s3Service.getPublicUrl(key),
+    };
   }
 }
