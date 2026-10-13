@@ -33,10 +33,11 @@ model User {
   deletedAt           DateTime?            @map("deleted_at")
   refreshTokens       RefreshToken[]
   organizationMembers OrganizationMember[]
+  ownedOrganizations  Organization[]       @relation("OrganizationOwner")
+  platformRoles       UserPlatformRole[]
 
   @@map("users")
 }
-
 
 model AvatarCleanupTask {
   id            String    @id @default(uuid())
@@ -72,13 +73,16 @@ model Organization {
   name      String
   slug      String    @unique
   isActive  Boolean   @default(true) @map("is_active")
+  ownerId   String    @map("owner_id")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
   members OrganizationMember[]
   roles   Role[]
+  owner   User                 @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 
+  @@index([ownerId])
   @@map("organizations")
 }
 
@@ -114,11 +118,27 @@ model Role {
 
   memberRoles     MemberRole[]
   rolePermissions RolePermission[]
+  platformUsers   UserPlatformRole[]
 
   @@unique([name, organizationId])
   @@unique([name], where: { organizationId: null }, map: "roles_global_name_key")
   @@index([organizationId])
   @@map("roles")
+}
+
+model UserPlatformRole {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  roleId    String    @map("role_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@map("user_platform_roles")
 }
 
 model MemberRole {
