@@ -20,6 +20,7 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { AvatarUploadInterceptor } from '@/common/interceptors/avatar-upload.interceptor.js';
 import { JpegAvatarPipe } from '@/common/pipes/jpeg-avatar.pipe.js';
 import { UpdateUserDto } from './dto/user.dto.js';
+import { RequirePlatformPermissions } from '@/common/decorators/require-platform-permissions.decorator.js';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -30,6 +31,7 @@ export class UsersController {
   // get all users
   // only admin
   @Get()
+  @RequirePlatformPermissions({ resource: 'USER', action: 'read' })
   @ApiOperation({ summary: 'Get all users' })
   async findAll(): Promise<User[]> {
     return this.usersService.findAll();

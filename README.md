@@ -298,13 +298,28 @@ a soft-deleted admin account. Changing the seed password does not reset the
 existing account's password. All bootstrap fields are still required on reruns.
 Run the seed explicitly; it does not run at application startup.
 
-The admin logs in through `POST /auth/login` normally. This bootstrap stores
-role assignments; permission guards are not implemented yet, so it does not
-enforce platform authorization on the current routes.
+The admin logs in through `POST /auth/login` normally. `GET /users` requires
+the platform permission `USER:read`; authenticated users without it receive
+HTTP 403. The global `PermissionsGuard` runs after authentication and
+throttling and checks active assignments, system roles, permission links, and
+permissions in the database on each request. Organization roles do not grant
+platform permissions. Other platform operations and organization authorization
+remain to be implemented; bootstrap records alone do not protect a route.
 
 Organization ownership is stored separately in `Organization.ownerId`.
 Platform roles use `UserPlatformRole`; organization roles use `MemberRole`.
-Active owner membership and safe ownership transfer still need backend rules.
+The same `PermissionsGuard` handles organization scope for future routes marked
+with `@RequireOrganizationPermissions({ resource: 'MEMBER', action: 'invite' })`.
+Such routes must include a UUID `:organizationId` parameter. The guard requires
+an active membership, an active organization, and all listed permissions from
+active roles in that organization. System administrators have no automatic bypass. If both scope decorators are present, both requirements must pass.
+The actual owner has full organization permission authority after the active
+membership and organization checks. `ownerId` is the sole source of ownership;
+an `OWNER` role assignment does not confer ownership or supply permissions to
+other members. No OWNER role is needed. Business rules and platform permissions
+still apply independently.
+Organization endpoints, initial ADMIN/MEMBER role provisioning, assignment
+validation, and safe ownership-transfer rules are still to be implemented.
 
 ### 6. Start the Application
 

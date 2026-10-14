@@ -17,6 +17,7 @@ import { join } from 'path';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard.js';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from './common/guards/permissions.guard.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -48,6 +49,10 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
     {
       provide: APP_GUARD,
       useClass: CustomThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
     {
       provide: APP_INTERCEPTOR,
