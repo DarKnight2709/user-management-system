@@ -26,7 +26,9 @@ Always use the existing scripts defined in `package.json`:
 | **Format**      | `npm run format`                                 | Runs `prettier --write`                                                 |
 | **Unit Tests**  | `npm test`                                       | Runs `vitest run` (**DO NOT use Jest**)                                 |
 | **E2E Tests**   | `npm run test:e2e`                               | Runs `vitest run --config ./vitest.config.e2e.ts`                       |
-| **Database**    | `npx prisma db push` or `npx prisma migrate dev` | Prisma 7 CLI                                                            |
+| **Database**    | `npx prisma migrate dev --config prisma7.config.ts` | Review generated migration SQL before applying it                    |
+| **Generate Client** | `npx prisma generate --config prisma7.config.ts` | Run after schema changes                                           |
+| **Admin Bootstrap** | `npm run prisma:seed` | Explicit operation; requires private `SEED_ADMIN_*` values                  |
 
 ---
 
@@ -59,6 +61,20 @@ src/
    - Keep DTOs in `dto/` directory matching `*.dto.ts`.
 3. **Database Access**:
    - Always inject `PrismaService` from `@/core/database/prisma.service.js`.
+   - Standalone seeds use the generated `PrismaClient` with `PrismaPg`, initialize it in `prisma/seed.ts`, and disconnect in `finally`. The entry point is configured in `prisma7.config.ts` and runs through `tsx`.
+   - Organization ownership uses required `Organization.ownerId`. Existing organizations need real owners backfilled before adding NOT NULL. Active owner membership and ownership-transfer checks remain to be implemented.
+   - Platform role assignments use `UserPlatformRole`; organization assignments use `MemberRole`. `isSystem` describes the role, not the user's authority. Do not create a dummy SYSTEM organization for platform admins.
+   - Platform assignments must use roles with `isSystem = true` and `organizationId = null`; organization assignments must remain within the membership's organization. Assignment validation remains to be implemented.
+   - One `PermissionsGuard` runs globally after JWT authentication and throttling. `@RequirePlatformPermissions(...)` requires every listed permission using current database assignments; deleted users, assignments, roles, permission links, and permissions are excluded. Only system roles with null organization scope count. Empty permission metadata fails closed; routes without this metadata retain their existing authorization rules.
+   - `GET /users` requires platform USER read permission. Other platform operations are not yet wired to this guard. Do not treat seeding SUPER_ADMIN as automatic route protection or use organization roles to grant platform permissions.
+   - `PermissionsService` in `common/services/` is exported by `GlobalModule`. Use `hasPlatformPermission(userId, permission)` for one permission or `hasPlatformPermissions(userId, permissions)` for all requirements. These return booleans for policy composition; database failures propagate. The guard delegates platform checks to this service. `DELETE /users/:id` uses self-or-platform-USER-delete authorization and deletes the target ID.
+   - RBAC work is paused; resume from `RBAC_FOLLOW_UP.md`. The current `UsersService.delete` has no ownership or last-admin safeguards and no explicit already-deleted no-op. Do not claim these exist. It soft-deletes and revokes refresh tokens in a serializable transaction. Retain memberships, role assignments, and current avatars. Future safeguards must protect owners of undeleted organizations and the last effective account administrator; role revocation, organization creation/ownership transfer, and restoration need coordinated rules too.
+   - The same `PermissionsGuard` also handles organization requirements. If both scope decorators are present, both checks must pass. `@RequireOrganizationPermissions(...)` requires every listed permission and a UUID `:organizationId` route parameter. It checks active membership, active/nondeleted organization and user, and active member roles/permission links/permissions. Only non-system roles belonging to the target organization count; platform admins have no bypass.
+   - `Organization.ownerId` is the sole source of ownership. After active membership/user/organization checks, the owner passes organization permission checks without a role lookup. This does not bypass platform requirements or service business rules. No OWNER role needs provisioning; legacy OWNER assignments are excluded from ordinary member permissions. ADMIN/MEMBER provisioning, ownership transfer, and organization endpoints remain to be implemented.
+   - Organization services must also constrain target resources (e.g. a member ID) to the authorized organization. Permission to manage organization A must never permit mutation of a resource in organization B. Routes without organization permission metadata retain their existing authorization rules.
+   - `prisma/seeds/admin.seed.ts` bootstraps SUPER_ADMIN with USER read/delete and ORGANIZATION delete permissions. Credentials and required profile fields come from `SEED_ADMIN_EMAIL`, `SEED_ADMIN_USERNAME`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_FIRST_NAME`, `SEED_ADMIN_LAST_NAME`, and `SEED_ADMIN_BIRTH_DATE`. Keep real values out of version control and logs.
+   - Bootstrap validates a minimum 15-character password, at most 72 UTF-8 bytes, and a non-whitespace character. It preserves existing admin credentials/profile, rejects ordinary-account promotion, soft-deleted accounts, and revoked admin assignments, and restores seeded role/permission records. Do not use it as a password-reset operation or run it at app startup.
+   - Review migrations and generate the client before bootstrap. Never run database-changing seeds as a routine lint/build check; bootstrap requires explicit task authorization. Log only safe bootstrap messages or Prisma error codes, not raw database errors or environment values.
 4. **File Storage**:
    - Use `S3Service` from `@/core/storage/s3.service.js` for uploads/downloads.
    - `S3_PUBLIC_URL` is the public storage origin without the bucket. URL construction appends the configured bucket and the exact stored object key.

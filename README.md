@@ -249,13 +249,89 @@ objects leaves existing database avatar keys pointing to missing files.
 
 ### 4. Run Database Migrations
 
-Apply the Prisma schema to the database:
+Apply the checked-in migrations and generate the Prisma client:
 
 ```bash
-npx prisma db push
+npx prisma migrate deploy --config prisma7.config.ts
+npx prisma generate --config prisma7.config.ts
 ```
 
-### 5. Start the Application
+When developing a schema change, generate a migration with
+`npx prisma migrate dev --create-only --config prisma7.config.ts` and review its
+SQL before applying it. Adding the required organization `owner_id` to a
+populated table needs a backfill with the actual owners before enforcing NOT NULL.
+
+### 5. Bootstrap the System Admin
+
+Add these fields to your private `.env` and supply your admin account details:
+
+```ini
+SEED_ADMIN_EMAIL=
+SEED_ADMIN_USERNAME=
+SEED_ADMIN_PASSWORD=
+SEED_ADMIN_FIRST_NAME=
+SEED_ADMIN_LAST_NAME=
+SEED_ADMIN_BIRTH_DATE=
+```
+
+Use a valid email, a unique username, nonempty names, and an ISO birth date
+(`YYYY-MM-DD`) that is not in the future. The password must contain at least
+15 characters, include a non-whitespace character, and fit within 72 UTF-8 bytes.
+Never commit real bootstrap credentials or put them in `.env.example`.
+
+After migrations and client generation, run:
+
+```bash
+npm run prisma:seed
+```
+
+The command runs `prisma/seed.ts` through `tsx`, using the PostgreSQL adapter.
+It creates the `USER:read`, `USER:delete`, and `ORGANIZATION:delete` permissions,
+the global `SUPER_ADMIN` role (`isSystem = true`, `organizationId = null`), their
+permission links, and the admin's `UserPlatformRole` assignment in one transaction.
+The password is stored as a bcrypt hash. No system organization is created.
+
+Repeat runs preserve the existing admin's password and profile and repair the
+seeded role and permission records. Bootstrap refuses to promote an ordinary
+account with the configured email, restore a revoked admin assignment, or reuse
+a soft-deleted admin account. Changing the seed password does not reset the
+existing account's password. All bootstrap fields are still required on reruns.
+Run the seed explicitly; it does not run at application startup.
+
+The admin logs in through `POST /auth/login` normally. `GET /users` requires
+the platform permission `USER:read`; authenticated users without it receive
+HTTP 403. The global `PermissionsGuard` runs after authentication and
+throttling and checks active assignments, system roles, permission links, and
+permissions in the database on each request. Organization roles do not grant
+platform permissions. Other platform operations and organization authorization
+remain to be implemented; bootstrap records alone do not protect a route.
+
+Platform permission queries are shared through `PermissionsService`, which the
+guard uses and domain policies can call for checks such as self-or-permission.
+It exposes single-permission and all-permissions checks. `DELETE /users/:id`
+allows self-deletion or platform `USER:delete`. Deletion and refresh-token revocation
+run in a serializable transaction with conflict retries. Ownership and last-admin
+deletion safeguards and explicit idempotent repeat deletion are not implemented
+in the current code. Memberships, role assignments, and the current avatar are
+retained; JWT authentication rejects deleted users. RBAC work is paused; see
+[RBAC_FOLLOW_UP.md](RBAC_FOLLOW_UP.md) for the remaining implementation and checks.
+
+Organization ownership is stored separately in `Organization.ownerId`.
+Platform roles use `UserPlatformRole`; organization roles use `MemberRole`.
+The same `PermissionsGuard` handles organization scope for future routes marked
+with `@RequireOrganizationPermissions({ resource: 'MEMBER', action: 'invite' })`.
+Such routes must include a UUID `:organizationId` parameter. The guard requires
+an active membership, an active organization, and all listed permissions from
+active roles in that organization. System administrators have no automatic bypass. If both scope decorators are present, both requirements must pass.
+The actual owner has full organization permission authority after the active
+membership and organization checks. `ownerId` is the sole source of ownership;
+an `OWNER` role assignment does not confer ownership or supply permissions to
+other members. No OWNER role is needed. Business rules and platform permissions
+still apply independently.
+Organization endpoints, initial ADMIN/MEMBER role provisioning, assignment
+validation, and safe ownership-transfer rules are still to be implemented.
+
+### 6. Start the Application
 
 ```bash
 # Development mode with watch:

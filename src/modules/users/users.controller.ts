@@ -20,16 +20,22 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { AvatarUploadInterceptor } from '@/common/interceptors/avatar-upload.interceptor.js';
 import { JpegAvatarPipe } from '@/common/pipes/jpeg-avatar.pipe.js';
 import { UpdateUserDto } from './dto/user.dto.js';
+import { RequirePlatformPermissions } from '@/common/decorators/require-platform-permissions.decorator.js';
+import { PermissionsService } from '@/common/services/permissions.service.js';
 
 @ApiTags('Users')
 @ApiBearerAuth()
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly permissionsService: PermissionsService,
+  ) {}
 
   // get all users
   // only admin
   @Get()
+  @RequirePlatformPermissions({ resource: 'USER', action: 'read' })
   @ApiOperation({ summary: 'Get all users' })
   async findAll(): Promise<User[]> {
     return this.usersService.findAll();
@@ -66,11 +72,20 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') currentUserId: string,
   ): Promise<void> {
-    // or admin
-    if (id !== currentUserId) {
-      throw new ForbiddenException('Delete a ction not allowed');
+    const isSelf = id === currentUserId;
+    const canDeleteUsers = await this.permissionsService.hasPlatformPermission(
+      currentUserId,
+      {
+        resource: 'USER',
+        action: 'delete',
+      },
+    );
+
+    if (!isSelf && !canDeleteUsers) {
+      throw new ForbiddenException('Delete action not allowed');
     }
-    return this.usersService.delete(currentUserId);
+
+    await this.usersService.delete(id);
   }
 
   @Post('avatar')
