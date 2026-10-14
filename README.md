@@ -342,6 +342,11 @@ npm run build
 npm run start:prod
 ```
 
+The bootstrap enables Nest shutdown hooks so supported termination signals invoke
+the application's lifecycle cleanup. Forced termination cannot run cleanup hooks.
+Verify Ctrl+C (SIGINT) on Windows and SIGTERM separately in the Linux deployment;
+enabling hooks alone does not verify in-flight request or worker shutdown behavior.
+
 Once started, the server will log:
 
 ```text

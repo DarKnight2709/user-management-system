@@ -87,6 +87,8 @@ src/
 5. **Exception Handling**:
    - Throw standard NestJS HTTP exceptions (`NotFoundException`, `ConflictException`, etc.).
    - Global filters handle Prisma and general exceptions.
+6. **Application Lifecycle**:
+   - Keep `app.enableShutdownHooks()` in `main.ts` so supported termination signals invoke lifecycle cleanup. Forced termination cannot run these hooks. Verify worker/resource ordering and in-flight behavior separately; do not infer Linux SIGTERM verification from Windows Ctrl+C checks.
 
 ---
 
