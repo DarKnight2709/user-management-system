@@ -17,12 +17,14 @@ import {
   type OrganizationPermissionRequirement,
 } from '../decorators/require-organization-permissions.decorator.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
+import { PermissionsService } from '@/common/services/permissions.service.js';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly prisma: PrismaService,
+    private readonly permissionsService: PermissionsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -46,7 +48,6 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    // The global JWT guard authenticates this identity before this guard runs.
     const request = context.switchToHttp().getRequest<{
       user?: { id?: unknown };
     }>();
@@ -55,46 +56,10 @@ export class PermissionsGuard implements CanActivate {
       throw new UnauthorizedException('Authentication required');
     }
 
-    const assignments = await this.prisma.userPlatformRole.findMany({
-      where: {
-        userId,
-        deletedAt: null,
-        user: { deletedAt: null },
-        role: {
-          isSystem: true,
-          organizationId: null,
-          deletedAt: null,
-        },
-      },
-      select: {
-        role: {
-          select: {
-            rolePermissions: {
-              where: {
-                deletedAt: null,
-                permission: { deletedAt: null, OR: required },
-              },
-              select: {
-                permission: { select: { action: true, resource: true } },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    const grantedPermissions = assignments.flatMap(({ role }) =>
-      role.rolePermissions.map(({ permission }) => permission),
+    const allowed = await this.permissionsService.hasPlatformPermissions(
+      userId,
+      required,
     );
-
-    const allowed = required.every((needed) =>
-      grantedPermissions.some(
-        (granted) =>
-          granted.resource === needed.resource &&
-          granted.action === needed.action,
-      ),
-    );
-
     if (!allowed) {
       throw new ForbiddenException('Insufficient platform permissions');
     }

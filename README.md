@@ -306,6 +306,16 @@ permissions in the database on each request. Organization roles do not grant
 platform permissions. Other platform operations and organization authorization
 remain to be implemented; bootstrap records alone do not protect a route.
 
+Platform permission queries are shared through `PermissionsService`, which the
+guard uses and domain policies can call for checks such as self-or-permission.
+It exposes single-permission and all-permissions checks. `DELETE /users/:id`
+allows self-deletion or platform `USER:delete`. Deletion and refresh-token revocation
+run in a serializable transaction with conflict retries. Ownership and last-admin
+deletion safeguards and explicit idempotent repeat deletion are not implemented
+in the current code. Memberships, role assignments, and the current avatar are
+retained; JWT authentication rejects deleted users. RBAC work is paused; see
+[RBAC_FOLLOW_UP.md](RBAC_FOLLOW_UP.md) for the remaining implementation and checks.
+
 Organization ownership is stored separately in `Organization.ownerId`.
 Platform roles use `UserPlatformRole`; organization roles use `MemberRole`.
 The same `PermissionsGuard` handles organization scope for future routes marked
