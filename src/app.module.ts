@@ -18,6 +18,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard.js';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
+import { HealthModule } from './modules/health/health.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -38,6 +39,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard.js';
     UsersModule,
     GlobalModule,
     AuthModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [

@@ -92,6 +92,16 @@ src/
 
 ---
 
+Health conventions: `HealthModule` owns `/health/live`, a public liveness probe
+with no database/storage queries. It returns the standard envelope with
+`data.status = "ok"`. Its named ip/account/userId throttling policies are skipped
+to avoid probe-induced 429 responses. `/health/ready` checks PostgreSQL via a
+read-only users-table query: 200 when available, safe 503 on errors/deadline.
+Transaction maxWait is 1 second, timeout is 2 seconds, and response deadline is
+3 seconds. Concurrent probes share in-flight database work; the response deadline
+alone does not cancel driver work. Storage/shutdown readiness remain pending.
+Do not treat the root greeting or liveness as dependency verification.
+
 ## 4. Git & Commit Guidelines
 
 - Strictly adhere to [GIT_GUIDELINES.md](file:///d:/VscodeProjects/user-management-system/GIT_GUIDELINES.md).

@@ -10,7 +10,7 @@ export class AppController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'Health check' })
+  @ApiOperation({ summary: 'Get application greeting' })
   getHello(): string {
     return this.appService.getHello();
   }

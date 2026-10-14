@@ -364,6 +364,39 @@ Interactive Swagger documentation is available out-of-the-box at:
 
 Raw OpenAPI JSON specification: `http://localhost:3000/api-docs-json`
 
+### Liveness
+
+`GET /health/live` is public and returns HTTP 200 with `data.status = "ok"`
+inside the standard response envelope. It checks whether the application can
+respond, without querying PostgreSQL or MinIO. Health probes skip the named
+rate-limit policies so repeated probes do not trigger HTTP 429.
+
+```powershell
+curl.exe -i http://localhost:3000/health/live
+```
+
+Use your configured application port if it differs from 3000. This endpoint is
+not readiness: dependency availability and shutdown readiness are not checked by liveness.
+The `/` route remains an application greeting, not a dependency health check.
+
+### PostgreSQL Readiness
+
+`GET /health/ready` is public and skips the same throttling policies. It performs
+a read-only Prisma query against the users table; an empty table is healthy.
+Success returns HTTP 200 with `data.status = "ok"` and
+`data.checks.database = "up"`. Failure returns HTTP 503 with a safe unavailable
+status, without connection details or raw errors.
+
+```powershell
+curl.exe -i http://localhost:3000/health/ready
+```
+
+The check uses a 1-second transaction acquisition limit, a 2-second transaction
+timeout, and a 3-second response deadline. Overlapping probes share database work.
+The response deadline does not itself cancel the underlying driver operation.
+MinIO availability and shutdown readiness are not checked yet. This probe checks
+database connectivity and access to the users table, not every migration or business operation.
+
 ### Authentication Flow in Swagger UI:
 
 1. Call `POST /auth/login` with your credentials (`email` and `password`).
