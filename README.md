@@ -358,11 +358,18 @@ Once started, the server will log:
 
 ## 📖 API Documentation
 
-Interactive Swagger documentation is available out-of-the-box at:
+Interactive Swagger documentation is available when `NODE_ENV=development` at:
 
 👉 **[http://localhost:3000/api-docs](http://localhost:3000/api-docs)**
 
 Raw OpenAPI JSON specification: `http://localhost:3000/api-docs-json`
+
+Swagger UI and raw OpenAPI endpoints (JSON/YAML) are not registered in production
+or test environments. Document generation and the Swagger startup log are also
+skipped. Configuration defaults `NODE_ENV` to development when omitted, so set
+`NODE_ENV=production` explicitly in production; the `start:prod` script does not
+set it for you. This policy does not replace authentication or authorization on
+business endpoints. The startup log example above includes Swagger only in development.
 
 ### Liveness
 

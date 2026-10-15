@@ -50,6 +50,7 @@ src/
 ### Coding Conventions
 
 1. **OpenAPI / Swagger**:
+   - `main.ts` creates and registers Swagger only when validated `NODE_ENV` equals `development`; production/test have no Swagger UI or raw JSON/YAML endpoints. Keep its startup log conditional too. NODE_ENV defaults to development, so deployment must explicitly set production; `npm run start:prod` alone does not set the environment.
    - NestJS Swagger CLI plugin is enabled in `nest-cli.json` (`classValidatorShim: true`).
    - Do **NOT** add manual `@ApiProperty()` to standard DTOs unless specifying multipart schemas or binary files.
    - Controllers should only include essential decorators:
