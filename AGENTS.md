@@ -117,6 +117,7 @@ Do not treat the root greeting or liveness as dependency verification.
   - `chore(scope): ...`
 - Subject must be lowercase, in imperative mood, with no trailing period.
 - Never commit secrets, `.env`, or build artifacts (`dist/`, `*.tsbuildinfo`).
+- Keep README feature/status claims aligned with implemented code. Distinguish permission infrastructure from protected endpoints, access JWTs from refresh-session revocation, and local Compose from production deployment. Do not label the project production-ready while documented authorization/deployment work remains unfinished.
 
 ---
 
