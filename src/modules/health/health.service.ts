@@ -1,13 +1,32 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleDestroy,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
 
 @Injectable()
-export class HealthService {
+export class HealthService implements OnModuleDestroy {
   private databaseCheck?: Promise<void>;
+  private shuttingDown = false;
 
   constructor(private readonly prisma: PrismaService) {}
 
+  onModuleDestroy(): void {
+    this.shuttingDown = true;
+  }
+
+  private assertNotShuttingDown(): void {
+    if (this.shuttingDown) {
+      throw new ServiceUnavailableException({
+        status: 'unavailable',
+        message: 'Application is shutting down',
+      });
+    }
+  }
+
   async ready(): Promise<{ status: 'ok'; checks: { database: 'up' } }> {
+    this.assertNotShuttingDown();
     // Share overlapping probes rather than queueing more database work during outages.
     if (!this.databaseCheck) {
       this.databaseCheck = this.prisma
@@ -34,8 +53,8 @@ export class HealthService {
           );
         }),
       ]);
-      return { status: 'ok', checks: { database: 'up' } };
     } catch {
+      this.assertNotShuttingDown();
       // Do not expose connection strings, database errors, or exception causes.
       throw new ServiceUnavailableException({
         status: 'unavailable',
@@ -45,5 +64,7 @@ export class HealthService {
     } finally {
       if (timer) clearTimeout(timer);
     }
+    this.assertNotShuttingDown();
+    return { status: 'ok', checks: { database: 'up' } };
   }
 }

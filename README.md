@@ -394,7 +394,14 @@ curl.exe -i http://localhost:3000/health/ready
 The check uses a 1-second transaction acquisition limit, a 2-second transaction
 timeout, and a 3-second response deadline. Overlapping probes share database work.
 The response deadline does not itself cancel the underlying driver operation.
-MinIO availability and shutdown readiness are not checked yet. This probe checks
+When the health service's `onModuleDestroy()` hook runs, readiness switches to
+HTTP 503 with `Application is shutting down`. New probes skip the database and
+in-flight probes recheck shutdown state before returning success. Liveness remains
+independent. This flag does not add a traffic-draining grace period; once the HTTP
+server closes, probes cannot reach it. Deployment routing and termination timing
+must be configured and verified separately.
+
+MinIO availability is not checked yet. This probe checks
 database connectivity and access to the users table, not every migration or business operation.
 
 ### Authentication Flow in Swagger UI:

@@ -99,7 +99,11 @@ to avoid probe-induced 429 responses. `/health/ready` checks PostgreSQL via a
 read-only users-table query: 200 when available, safe 503 on errors/deadline.
 Transaction maxWait is 1 second, timeout is 2 seconds, and response deadline is
 3 seconds. Concurrent probes share in-flight database work; the response deadline
-alone does not cancel driver work. Storage/shutdown readiness remain pending.
+alone does not cancel driver work. HealthService marks shutdown in onModuleDestroy;
+readiness rejects new probes with safe 503 and rechecks after in-flight queries.
+Shutdown failures must not be misreported as database failures. Liveness remains
+independent. No routing-propagation grace period is implemented; deployment drain
+timing and real signal behavior require separate verification. Storage readiness remains pending.
 Do not treat the root greeting or liveness as dependency verification.
 
 ## 4. Git & Commit Guidelines
