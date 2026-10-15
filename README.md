@@ -1,14 +1,38 @@
 # User Management System API
 
 [![NestJS](https://img.shields.io/badge/NestJS-12-ea2845?style=flat-square&logo=nestjs&logoColor=white)](https://nestjs.com/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169e1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-7-2d3748?style=flat-square&logo=prisma&logoColor=white)](https://www.prisma.io/)
 [![Swagger](https://img.shields.io/badge/Swagger-OpenAPI%203.0-85ea2d?style=flat-square&logo=swagger&logoColor=black)](https://swagger.io/)
 [![Vitest](https://img.shields.io/badge/Vitest-Testing-fcc72b?style=flat-square&logo=vitest&logoColor=black)](https://vitest.dev/)
 [![Oxlint](https://img.shields.io/badge/Oxlint-Linter-00d1b2?style=flat-square)](https://oxc.rs/)
 
-A production-ready RESTful API backend built with **NestJS 12**, **PostgreSQL 17**, and **Prisma 7**. Featuring JWT authentication, S3-compatible file storage (MinIO / AWS S3) with magic-byte file validation, automated OpenAPI documentation, and local container orchestration with Docker Compose.
+A REST API backend under active development, built with **NestJS 12**, **PostgreSQL 17**, and **Prisma 7**. It includes access/refresh-token authentication, scoped permission checks, validated JPEG avatar uploads, PostgreSQL health probes, development Swagger documentation, and local Docker Compose infrastructure. Authorization and production deployment work remain incomplete.
+
+---
+
+## Project Status and Remaining Work
+
+This repository is an API backend; it does not include a frontend. The local
+Compose setup is not a production deployment configuration.
+
+- **Authorization:** platform permission checks and organization guard infrastructure
+  exist, but organization endpoints, role assignment validation, ownership transfer,
+  and safe owner/last-admin account deletion remain unfinished.
+- **Sessions:** logout and password changes revoke refresh sessions. Existing access
+  JWTs may remain usable until expiry (15 minutes by default), except deleted users
+  are rejected by the JWT strategy. Immediate access-token revocation, browser cookie
+  transport, and session-retention work are deferred.
+- **Deployment:** CORS is deferred until browser client origins are known. Shared
+  throttling storage, centralized logging, and routing/drain timing require deployment
+  work. Readiness checks PostgreSQL and shutdown state, not MinIO.
+- **Storage:** replaced-avatar cleanup is durable and retryable. Current avatars of
+  soft-deleted users remain stored and publicly readable under the current policy.
+  Fresh-machine MinIO image provisioning remains unresolved as documented below.
+- **Verification:** build/lint and targeted/manual checks are not a comprehensive
+  security, concurrency, or deployment test suite. Verify each deferred behavior
+  before relying on it in production.
 
 ---
 
@@ -16,21 +40,23 @@ A production-ready RESTful API backend built with **NestJS 12**, **PostgreSQL 17
 
 - **Authentication & Security**:
   - Passport Local strategy for credential verification and secure bcrypt password hashing.
-  - Stateless JWT token issuance and verification with `JwtAuthGuard`.
+  - Short-lived access JWTs and database-backed refresh-token rotation with family revocation.
+  - Global JWT authentication, request throttling, password change, and logout/logout-all.
   - Type-safe `@CurrentUser()` custom decorator for extracting authenticated identity.
 - **User Management (CRUD)**:
-  - Full user lifecycle operations (create, read, update, delete).
+  - Public registration, permission-protected account listing, self-service profile updates, and soft deletion.
+  - Account deletion allows self-service or platform USER delete permission; ownership and last-admin protections remain pending.
   - Robust request validation powered by `class-validator` and `ParseUUIDPipe`.
 - **S3-Compatible Avatar Storage**:
   - Single-part image uploads via Multer interceptor.
   - JPEG signature filtering followed by decoding and re-encoding with Sharp; input is limited to 16 million pixels. EXIF orientation is applied, images are resized to fit within 1024 × 1024 pixels while preserving aspect ratio without enlarging smaller images, and metadata is stripped. The upload accepts one file and no text fields. Both the input and processed JPEG are limited to 2 MB (2,097,152 bytes); oversized output is rejected with HTTP 413. The stored JPEG may differ in size and quality.
   - Storage integration with AWS S3 / MinIO via `@aws-sdk/client-s3` and public URL resolution.
-- **Enterprise-Grade Architecture**:
+- **Application Architecture**:
   - Clean separation: `common/` (cross-cutting), `core/` (infrastructure), and `modules/` (domain logic).
   - Global Prisma exception filter mapping database constraints to standard HTTP status codes.
-  - Centralized request/response logging middleware and transform interceptors.
+  - Request logging middleware and a shared response envelope. Centralized log collection is deferred.
 - **Auto-Generated Documentation**:
-  - Interactive OpenAPI/Swagger UI served at `/api-docs` with JWT Bearer authorization support.
+  - Interactive OpenAPI/Swagger UI at `/api-docs` in development only, with JWT Bearer authorization support.
 - **Modern Developer Tooling**:
   - Native Node.js ES Modules (`"type": "module"`).
   - Ultra-fast static analysis via **Oxlint** and unit testing via **Vitest**.
@@ -49,9 +75,10 @@ flowchart TD
         Validation["ValidationPipe / ParseUUIDPipe"]
 
         subgraph Controllers ["Controllers"]
-            AppCtrl["AppController (Health)"]
+            AppCtrl["AppController (Greeting)"]
             AuthCtrl["AuthController (/auth)"]
             UsersCtrl["UsersController (/users)"]
+            HealthCtrl["HealthController (/health)"]
         end
 
         subgraph Services ["Services & Logic"]
@@ -59,6 +86,7 @@ flowchart TD
             UsersSvc["UsersService"]
             S3Svc["S3Service"]
             PrismaSvc["PrismaService"]
+            HealthSvc["HealthService"]
         end
 
         Filters["Prisma & AllExceptions Filter"]
@@ -79,6 +107,8 @@ flowchart TD
     UsersSvc --> S3Svc
     UsersSvc --> PrismaSvc
     AuthSvc --> PrismaSvc
+    HealthCtrl --> HealthSvc
+    HealthSvc --> PrismaSvc
 
     PrismaSvc -->|Prisma Client| PostgresDB
     S3Svc -->|AWS SDK v3| MinioStorage
@@ -92,11 +122,11 @@ flowchart TD
 | Layer                  | Technology                                                       | Description                                |
 | :--------------------- | :--------------------------------------------------------------- | :----------------------------------------- |
 | **Backend Framework**  | [NestJS 12](https://nestjs.com/)                                 | Progressive Node.js framework (ESM)        |
-| **Language**           | [TypeScript 5](https://www.typescriptlang.org/)                  | Strongly-typed JavaScript                  |
+| **Language**           | [TypeScript 6](https://www.typescriptlang.org/)                  | Strongly-typed JavaScript                  |
 | **Database**           | [PostgreSQL 17](https://www.postgresql.org/)                     | Relational database engine                 |
 | **ORM**                | [Prisma 7](https://www.prisma.io/)                               | Next-generation Node.js ORM                |
 | **Object Storage**     | [MinIO](https://min.io/) / [AWS S3](https://aws.amazon.com/s3/)  | S3-compatible cloud object storage         |
-| **Authentication**     | [Passport](https://www.passportjs.org/) + [JWT](https://jwt.io/) | Stateless token-based auth                 |
+| **Authentication**     | [Passport](https://www.passportjs.org/) + [JWT](https://jwt.io/) | Access JWTs and stored refresh sessions                 |
 | **API Documentation**  | [Swagger / OpenAPI 3.0](https://swagger.io/)                     | Auto-generated interactive API docs        |
 | **Testing**            | [Vitest](https://vitest.dev/)                                    | Vite-powered unit test runner              |
 | **Linter & Formatter** | [Oxlint](https://oxc.rs/) + [Prettier](https://prettier.io/)     | High-performance linter and code formatter |
@@ -108,7 +138,7 @@ flowchart TD
 
 ### Prerequisites
 
-- **Node.js**: `v20.x` or higher
+- **Node.js**: compatible with the installed Prisma requirement: `^20.19 || ^22.12 || >=24.0`
 - **npm**: `v10.x` or higher
 - **Docker & Docker Compose**: Installed and running
 
@@ -303,7 +333,7 @@ the platform permission `USER:read`; authenticated users without it receive
 HTTP 403. The global `PermissionsGuard` runs after authentication and
 throttling and checks active assignments, system roles, permission links, and
 permissions in the database on each request. Organization roles do not grant
-platform permissions. Other platform operations and organization authorization
+platform permissions. Other platform operations and organization service flows
 remain to be implemented; bootstrap records alone do not protect a route.
 
 Platform permission queries are shared through `PermissionsService`, which the
@@ -313,8 +343,8 @@ allows self-deletion or platform `USER:delete`. Deletion and refresh-token revoc
 run in a serializable transaction with conflict retries. Ownership and last-admin
 deletion safeguards and explicit idempotent repeat deletion are not implemented
 in the current code. Memberships, role assignments, and the current avatar are
-retained; JWT authentication rejects deleted users. RBAC work is paused; see
-[RBAC_FOLLOW_UP.md](RBAC_FOLLOW_UP.md) for the remaining implementation and checks.
+retained; JWT authentication rejects deleted users. RBAC work is paused; the
+remaining authorization work is summarized in Project Status and Remaining Work.
 
 Organization ownership is stored separately in `Organization.ownerId`.
 Platform roles use `UserPlatformRole`; organization roles use `MemberRole`.
@@ -414,10 +444,10 @@ database connectivity and access to the users table, not every migration or busi
 ### Authentication Flow in Swagger UI:
 
 1. Call `POST /auth/login` with your credentials (`email` and `password`).
-2. Copy the returned `access_token`.
+2. Copy `data.accessToken` from the standard response envelope. Login also returns `data.refreshToken`.
 3. Click the **Authorize 🔓** button at the top right of Swagger UI.
-4. Enter `Bearer <your_token>` and click **Authorize**.
-5. All protected endpoints (`/users`, `/users/avatar`, `/auth/me`) are now unlocked for testing.
+4. Paste the access token into the HTTP Bearer authorization field and click **Authorize**.
+5. Call protected endpoints. Authentication does not bypass permission checks: `/users` requires USER read, while profile and avatar operations use the current identity.
 
 ---
 
@@ -449,7 +479,7 @@ user-management-system/
 ├── prisma/
 │   └── schema.prisma        # Prisma schema definitions
 ├── src/
-│   ├── app.controller.ts    # Health check endpoint
+│   ├── app.controller.ts    # Root greeting endpoint
 │   ├── app.module.ts        # Main application module
 │   ├── main.ts              # Entrypoint, Swagger & global pipes bootstrap
 │   ├── common/              # Shared guards, interceptors, filters, decorators
@@ -474,4 +504,4 @@ This project adheres to **Trunk-Based Development** and **Conventional Commits**
 
 ## 📄 License
 
-This project is licensed under the UNLICENSED / MIT License.
+The package is marked `UNLICENSED` in `package.json`; no MIT license grant is declared there.
