@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import { User } from './interfaces/user.interface.js';
+import { User, type PaginatedUsers } from './interfaces/user.interface.js';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { randomUUID } from 'crypto';
@@ -37,13 +38,60 @@ export class UsersService {
     };
   }
 
-  async findAll(): Promise<User[]> {
-    const users = await this.prismaService.user.findMany({
-      where: { deletedAt: null },
-      omit: { hashedPassword: true },
-    });
+  async findAllForActor({
+    actorId,
+    page = 1,
+    limit = 20,
+  }: {
+    actorId: string;
+    page?: number;
+    limit?: number;
+  }): Promise<PaginatedUsers> {
+    // Keep pagination bounded even when called without the controller validation pipe.
+    if (
+      !Number.isInteger(page) ||
+      page < 1 ||
+      page > 1_000_000 ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    ) {
+      throw new UnprocessableEntityException('Invalid pagination');
+    }
+    const { users, total } = await this.prismaService.serializableTransaction(
+      async (manager) => {
+        const actor = await manager.user.findUnique({
+          where: { id: actorId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!actor) throw new UnauthorizedException('Authentication required');
+        const allowed = await this.permissionsService.hasPlatformPermission(
+          actorId,
+          { resource: 'USER', action: 'read' },
+          manager,
+        );
+        if (!allowed) throw new ForbiddenException('Access denied');
 
-    return users.map((user) => this.toUserResponse(user));
+        // Count and page use the same snapshot; the ID breaks creation-time ties.
+        const [users, total] = await Promise.all([
+          manager.user.findMany({
+            where: { deletedAt: null },
+            omit: { hashedPassword: true },
+            orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+            skip: (page - 1) * limit,
+            take: limit,
+          }),
+          manager.user.count({ where: { deletedAt: null } }),
+        ]);
+        return { users, total };
+      },
+    );
+    return {
+      items: users.map((user) => this.toUserResponse(user)),
+      total,
+      page,
+      limit,
+    };
   }
 
   async findOneByEmail(email: string): Promise<User | null> {

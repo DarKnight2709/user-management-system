@@ -10,3 +10,10 @@ export interface User {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface PaginatedUsers {
+  items: User[];
+  total: number;
+  page: number;
+  limit: number;
+}
