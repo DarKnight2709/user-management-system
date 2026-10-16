@@ -10,6 +10,7 @@ import { PrismaService } from '@/core/database/prisma.service.js';
 import { CreateOrganizationDto } from './dto/create-organization.dto.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import type { Prisma } from '@/generated/prisma/client.js';
+import { UpdateOrganizationDto } from './dto/update-organization.dto.js';
 
 const organizationDetails = {
   id: true,
@@ -36,6 +37,33 @@ export class OrganizationsService {
     private readonly prisma: PrismaService,
     private readonly permissionsService: PermissionsService,
   ) {}
+
+  async updateForActor(
+    actorId: string,
+    organizationId: string,
+    dto: UpdateOrganizationDto,
+  ) {
+    return this.prisma.serializableTransaction(async (manager) => {
+      const actor = await manager.user.findUnique({
+        where: { id: actorId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!actor) throw new UnauthorizedException('Authentication required');
+      const allowed = await this.permissionsService.hasOrganizationPermissions(
+        actorId,
+        organizationId,
+        [{ resource: 'ORGANIZATION', action: 'update' }],
+        manager,
+      );
+      if (!allowed) throw new ForbiddenException('Organization access denied');
+      return manager.organization.update({
+        where: { id: organizationId, deletedAt: null, isActive: true },
+        // Explicit allowlist also protects direct service calls from mass assignment.
+        data: { name: dto.name },
+        select: organizationDetails,
+      });
+    });
+  }
 
   async findAllForActor({
     actorId,

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   ParseUUIDPipe,
   Post,
   Query,
@@ -13,12 +14,31 @@ import { CreateOrganizationDto } from './dto/create-organization.dto.js';
 import { OrganizationsService } from './organizations.service.js';
 import { RequireOrganizationPermissions } from '@/common/decorators/require-organization-permissions.decorator.js';
 import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto.js';
+import { UpdateOrganizationDto } from './dto/update-organization.dto.js';
 
 @ApiTags('Organizations')
 @ApiBearerAuth()
 @Controller('organizations')
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
+
+  @Patch(':organizationId')
+  @RequireOrganizationPermissions({
+    resource: 'ORGANIZATION',
+    action: 'update',
+  })
+  @ApiOperation({ summary: 'Update organization name' })
+  async update(
+    @CurrentUser('id') actorId: string,
+    @Param('organizationId', ParseUUIDPipe) organizationId: string,
+    @Body() dto: UpdateOrganizationDto,
+  ) {
+    return this.organizationsService.updateForActor(
+      actorId,
+      organizationId,
+      dto,
+    );
+  }
 
   @Get()
   @ApiOperation({
