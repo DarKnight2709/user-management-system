@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import type { PlatformPermission } from '../decorators/require-platform-permissions.decorator.js';
+import type { Prisma } from '@/generated/prisma/client.js';
 
 @Injectable()
 export class PermissionsService {
@@ -9,17 +10,19 @@ export class PermissionsService {
   hasPlatformPermission(
     userId: string,
     permission: PlatformPermission,
+    manager?: Prisma.TransactionClient,
   ): Promise<boolean> {
-    return this.hasPlatformPermissions(userId, [permission]);
+    return this.hasPlatformPermissions(userId, [permission], manager);
   }
 
   async hasPlatformPermissions(
     userId: string,
     required: PlatformPermission[],
+    manager: Prisma.TransactionClient = this.prisma,
   ): Promise<boolean> {
     if (!userId.trim() || required.length === 0) return false;
 
-    const assignments = await this.prisma.userPlatformRole.findMany({
+    const assignments = await manager.userPlatformRole.findMany({
       where: {
         userId,
         deletedAt: null,

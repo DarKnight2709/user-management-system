@@ -123,6 +123,21 @@ export async function seedAdmin(prisma: PrismaClient): Promise<void> {
         });
       }
 
+      // Rerunning bootstrap with another email must not create a second SUPER_ADMIN.
+      const otherSuperAdmin = await manager.userPlatformRole.findFirst({
+        where: {
+          roleId: role.id,
+          deletedAt: null,
+          user: { deletedAt: null, email: { not: config.email } },
+        },
+        select: { id: true },
+      });
+      if (otherSuperAdmin) {
+        throw new AdminSeedError(
+          'A different active SUPER_ADMIN already exists',
+        );
+      }
+
       let admin = await manager.user.findUnique({
         where: { email: config.email },
       });
