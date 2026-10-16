@@ -19,6 +19,7 @@ import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard.js'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -40,6 +41,7 @@ import { HealthModule } from './modules/health/health.module.js';
     GlobalModule,
     AuthModule,
     HealthModule,
+    OrganizationsModule,
   ],
   controllers: [AppController],
   providers: [

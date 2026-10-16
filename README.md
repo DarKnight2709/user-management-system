@@ -334,6 +334,44 @@ This is a bootstrap policy, not a database uniqueness constraint on role holders
 future assignment APIs must enforce the same single-holder rule and protect the
 reserved role from unauthorized mutation. Run the seed explicitly; it does not run at application startup.
 
+Organization permission definitions can be seeded separately, without admin
+bootstrap credentials:
+
+```bash
+npm run prisma:seed:organization-permissions
+```
+
+This requires `DATABASE_URL` and applied migrations. It upserts 13 permissions
+in one transaction: ORGANIZATION read/update/delete/transfer-ownership,
+ORGANIZATION_MEMBER read/invite/remove, and ORGANIZATION_ROLE
+create/read/update/delete/assign/revoke. Existing ORGANIZATION delete is shared
+with the platform catalog; authorization scope comes from the role and operation.
+Reruns preserve permission IDs and soft-deleted state; they update descriptions
+without restoring revoked permissions. No users, roles, or assignments are created
+or changed. Never run seeds at application startup.
+
+Default ADMIN permissions are organization read/update, member
+read/invite/remove, and role read. MEMBER receives organization/member/role read.
+Owners derive authority from ownerId. Within an organization, deletion, ownership
+transfer, and granting/revoking the built-in ADMIN role remain owner-only service
+rules. Custom role management must validate organization scope, protect built-in
+roles, and restrict permission delegation; catalog entries alone enforce none of
+these rules. The seed grants no new permissions to existing roles.
+
+`POST /organizations` accepts `{ "name": "My Team", "slug": "my-team" }`
+from any authenticated active user and returns 201 with the organization in the
+standard response envelope. Names are trimmed (1–100 characters); slugs are
+trimmed and lowercased (3–63 letters/numbers separated by single hyphens).
+Unknown fields, including ownerId and role assignments, are rejected with 422.
+The owner is always the authenticated caller. One serializable transaction with
+bounded retries creates the organization, active owner membership, and scoped
+ADMIN/MEMBER roles with their default permission links. No OWNER role or owner
+role assignment is needed. The transaction coordinates with user deletion.
+Missing/deleted creators receive 401, taken slugs receive 409 (including slugs of
+soft-deleted organizations), and missing/revoked default permissions receive 503
+without partial provisioning. Seed the catalog first. Existing global JWT and
+IP throttling guards apply; no existing organization membership is required.
+
 The admin logs in through `POST /auth/login` normally. `GET /users` requires
 the platform permission `USER:read`; authenticated users without it receive
 HTTP 403. The global `PermissionsGuard` runs after authentication and
@@ -393,8 +431,9 @@ membership and organization checks. `ownerId` is the sole source of ownership;
 an `OWNER` role assignment does not confer ownership or supply permissions to
 other members. No OWNER role is needed. Business rules and platform permissions
 still apply independently.
-Organization endpoints, initial ADMIN/MEMBER role provisioning, assignment
-validation, and safe ownership-transfer rules are still to be implemented.
+Organization creation and initial ADMIN/MEMBER provisioning are implemented.
+Other organization endpoints, assignment validation, custom-role management,
+and safe ownership-transfer rules remain to be implemented.
 
 ### 6. Start the Application
 
