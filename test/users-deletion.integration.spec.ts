@@ -26,6 +26,8 @@ import { JwtStrategy } from '../src/modules/auth/strategies/jwt.strategy.js';
 import { seedAdmin, AdminSeedError } from '../prisma/seeds/admin.seed.js';
 import { compare } from '../src/common/utils/hash.util.js';
 import { ListUsersQueryDto } from '../src/modules/users/dto/list-users-query.dto.js';
+import { OrganizationsService } from '../src/modules/organizations/organizations.service.js';
+import { seedOrganizationPermissions } from '../prisma/seeds/organization-permissions.seed.js';
 
 // Explicit opt-in; all fixtures live in a disposable schema, never application tables.
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
@@ -236,6 +238,180 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         }
         await ddl?.end();
       }
+    });
+
+    describe('Organization creation', () => {
+      const organizations = () =>
+        new OrganizationsService({
+          serializableTransaction<T>(
+            operation: (manager: Prisma.TransactionClient) => Promise<T>,
+          ): Promise<T> {
+            return PrismaService.prototype.serializableTransaction.call(
+              {
+                $transaction: db.$transaction.bind(db),
+              },
+              operation,
+            ) as Promise<T>;
+          },
+        } as PrismaService);
+      const input = () => ({
+        name: 'Fixture team',
+        slug: `team-${randomUUID()}`,
+      });
+
+      beforeEach(async () => {
+        await seedOrganizationPermissions(db);
+      });
+
+      it('creates owner membership and scoped roles with exactly the default permissions', async () => {
+        const organization = await organizations().create(regularId, input());
+        expect(organization).toMatchObject({
+          ownerId: regularId,
+          isActive: true,
+          deletedAt: null,
+        });
+        const members = await db.organizationMember.findMany({
+          where: { organizationId: organization.id },
+          include: { memberRoles: true },
+        });
+        expect(members).toHaveLength(1);
+        expect(members[0]).toMatchObject({
+          userId: regularId,
+          status: 'ACTIVE',
+          deletedAt: null,
+          memberRoles: [],
+        });
+        const roles = await db.role.findMany({
+          where: { organizationId: organization.id },
+          include: { rolePermissions: { include: { permission: true } } },
+        });
+        expect(roles.map((role) => role.name).sort()).toEqual([
+          'ADMIN',
+          'MEMBER',
+        ]);
+        for (const role of roles) {
+          expect(role.isSystem).toBe(false);
+          const grants = role.rolePermissions
+            .map(
+              ({ permission }) => `${permission.resource}:${permission.action}`,
+            )
+            .sort();
+          const reads = [
+            'ORGANIZATION:read',
+            'ORGANIZATION_MEMBER:read',
+            'ORGANIZATION_ROLE:read',
+          ];
+          expect(grants).toEqual(
+            (role.name === 'ADMIN'
+              ? [
+                  ...reads,
+                  'ORGANIZATION:update',
+                  'ORGANIZATION_MEMBER:invite',
+                  'ORGANIZATION_MEMBER:remove',
+                ]
+              : reads
+            ).sort(),
+          );
+        }
+      });
+
+      it.each(['missing', 'deleted'])(
+        'rejects a %s creator without creating records',
+        async (state) => {
+          if (state === 'deleted')
+            await db.user.update({
+              where: { id: regularId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(
+            organizations().create(
+              state === 'missing' ? randomUUID() : regularId,
+              input(),
+            ),
+          ).rejects.toMatchObject({ status: 401 });
+          expect(await db.organization.count()).toBe(0);
+        },
+      );
+
+      it.each(['missing', 'revoked'])(
+        'fails closed for a %s default permission',
+        async (state) => {
+          const where = {
+            action_resource: { resource: 'ORGANIZATION_ROLE', action: 'read' },
+          };
+          if (state === 'missing') await db.permission.delete({ where });
+          else
+            await db.permission.update({
+              where,
+              data: { deletedAt: new Date() },
+            });
+          await expect(
+            organizations().create(regularId, input()),
+          ).rejects.toMatchObject({ status: 503 });
+          expect(await db.organization.count()).toBe(0);
+          expect(await db.organizationMember.count()).toBe(0);
+        },
+      );
+
+      it('reserves slugs even after soft deletion', async () => {
+        const dto = input();
+        const organization = await organizations().create(regularId, dto);
+        await db.organization.update({
+          where: { id: organization.id },
+          data: { deletedAt: new Date() },
+        });
+        await expect(
+          organizations().create(adminId, dto),
+        ).rejects.toMatchObject({ status: 409 });
+        expect(await db.organization.count()).toBe(1);
+      });
+
+      it('rolls back organization and membership when role provisioning fails', async () => {
+        await ddl!.query(
+          `CREATE FUNCTION reject_org_role() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture role failure'; END $$`,
+        );
+        await ddl!.query(
+          `CREATE TRIGGER reject_org_role BEFORE INSERT ON roles FOR EACH ROW EXECUTE FUNCTION reject_org_role()`,
+        );
+        try {
+          await expect(
+            organizations().create(regularId, input()),
+          ).rejects.toThrow();
+          expect(await db.organization.count()).toBe(0);
+          expect(await db.organizationMember.count()).toBe(0);
+        } finally {
+          await ddl!.query('DROP TRIGGER reject_org_role ON roles');
+          await ddl!.query('DROP FUNCTION reject_org_role()');
+        }
+      });
+
+      it('coordinates creation with concurrent account deletion without a deleted owner', async () => {
+        const results = await Promise.allSettled([
+          organizations().create(regularId, input()),
+          deleteAs(adminId, regularId),
+        ]);
+        expect(results.some((result) => result.status === 'fulfilled')).toBe(
+          true,
+        );
+        expect(
+          await db.organization.count({
+            where: { deletedAt: null, owner: { deletedAt: { not: null } } },
+          }),
+        ).toBe(0);
+        const owned = await db.organization.findFirst({
+          where: { ownerId: regularId },
+        });
+        if (owned)
+          expect(results[1]).toMatchObject({
+            status: 'rejected',
+            reason: { status: 409 },
+          });
+        else
+          expect(results[0]).toMatchObject({
+            status: 'rejected',
+            reason: { status: 401 },
+          });
+      });
     });
 
     describe('Authorized paginated account listing', () => {

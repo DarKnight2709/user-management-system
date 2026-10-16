@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "prisma:seed": "prisma db seed --config prisma7.config.ts",
+    "prisma:seed:organization-permissions": "tsx prisma/seed.ts --organization-permissions",
     "build": "nest build",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
