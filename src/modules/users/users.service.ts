@@ -1,7 +1,10 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { User } from './interfaces/user.interface.js';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto.js';
@@ -10,6 +13,8 @@ import { randomUUID } from 'crypto';
 import { S3Service } from '@/core/storage/s3.service.js';
 import type { UserModel } from '@/generated/prisma/models/User.js';
 import { AvatarCleanupService } from './avatar-cleanup.service.js';
+import type { Prisma } from '@/generated/prisma/client.js';
+import { PermissionsService } from '@/common/services/permissions.service.js';
 
 @Injectable()
 export class UsersService {
@@ -17,6 +22,7 @@ export class UsersService {
     private readonly prismaService: PrismaService,
     private readonly s3Service: S3Service,
     private readonly avatarCleanup: AvatarCleanupService,
+    private readonly permissionsService: PermissionsService,
   ) {}
 
   private toUserResponse(
@@ -91,18 +97,93 @@ export class UsersService {
     return this.toUserResponse(updatedUser);
   }
 
-  async delete(id: string): Promise<void> {
+  /**
+   * Shared self/admin deletion: authorize the actor, protect organization ownership
+   * and the SUPER_ADMIN account, then soft-delete and revoke refresh sessions.
+   * Memberships, role assignments, and the current avatar are retained.
+   */
+  async delete({
+    actorId,
+    targetId,
+  }: {
+    actorId: string;
+    targetId: string;
+  }): Promise<void> {
     await this.prismaService.serializableTransaction(async (manager) => {
+      // JWT authentication may have happened before this account was deleted.
+      const actor = await manager.user.findUnique({
+        where: { id: actorId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!actor) throw new UnauthorizedException('Authentication required');
+
+      // Self-deletion needs no admin permission; deleting anyone else requires USER:delete.
+      if (actorId !== targetId) {
+        const allowed = await this.permissionsService.hasPlatformPermission(
+          actorId,
+          { resource: 'USER', action: 'delete' },
+          manager,
+        );
+        if (!allowed) throw new ForbiddenException('Delete action not allowed');
+      }
+
+      // Authorize before lookup so unauthorized callers cannot probe target existence.
+      const target = await manager.user.findUnique({
+        where: { id: targetId },
+        select: { deletedAt: true },
+      });
+      if (!target) throw new NotFoundException('User not found');
+      // Repeat deletion is a no-op only after authenticating and authorizing the actor.
+      if (target.deletedAt !== null) return;
+
+      await this.assertDeletionSafeguards(manager, targetId);
+
+      // Both writes commit together; a revocation failure rolls back account deletion.
       const now = new Date();
       await manager.user.update({
-        where: { id, deletedAt: null },
+        where: { id: targetId, deletedAt: null },
         data: { deletedAt: now },
       });
       await manager.refreshToken.updateMany({
-        where: { userId: id, revokedAt: null },
+        where: { userId: targetId, revokedAt: null },
         data: { revokedAt: now },
       });
     });
+  }
+
+  private async assertDeletionSafeguards(
+    manager: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<void> {
+    // No caller may delete an active SUPER_ADMIN, including that account itself.
+    // Protection does not depend on its current permission set or other admin count.
+    const superAdminAssignment = await manager.userPlatformRole.findFirst({
+      where: {
+        userId,
+        deletedAt: null,
+        role: {
+          name: 'SUPER_ADMIN',
+          isSystem: true,
+          organizationId: null,
+          deletedAt: null,
+        },
+      },
+      select: { id: true },
+    });
+    if (superAdminAssignment) {
+      throw new ConflictException('The SUPER_ADMIN account cannot be deleted');
+    }
+
+    const ownedOrganization = await manager.organization.findFirst({
+      // Inactive organizations still need an owner; only soft-deleted ones are excluded.
+      where: { ownerId: userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (ownedOrganization) {
+      throw new ConflictException(
+        'Transfer ownership or delete owned organizations before deleting this account',
+      );
+    }
   }
 
   async upload(

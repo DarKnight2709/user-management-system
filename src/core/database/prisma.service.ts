@@ -95,9 +95,21 @@ export class PrismaService
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
       } catch (error) {
+        // Commit-time conflicts can escape the pg adapter without Prisma's P2034 wrapper.
+        const driverCause =
+          error instanceof Error && error.name === 'DriverAdapterError'
+            ? error.cause
+            : undefined;
+        const isDriverConflict =
+          typeof driverCause === 'object' &&
+          driverCause !== null &&
+          'originalCode' in driverCause &&
+          (driverCause.originalCode === '40001' ||
+            driverCause.originalCode === '40P01');
         const isTransactionConflict =
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034';
+          (error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2034') ||
+          isDriverConflict;
 
         if (!isTransactionConflict || attempt >= maxAttempts) {
           throw error;

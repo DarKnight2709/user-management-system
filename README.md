@@ -19,7 +19,10 @@ Compose setup is not a production deployment configuration.
 
 - **Authorization:** platform permission checks and organization guard infrastructure
   exist, but organization endpoints, role assignment validation, ownership transfer,
-  and safe owner/last-admin account deletion remain unfinished.
+  remain unfinished; deletion auditing is intentionally deferred. Account deletion protects owners of
+  undeleted organizations and the SUPER_ADMIN account (including self-deletion). Current
+  deletion concurrency was verified against local PostgreSQL; future role/ownership
+  mutation flows still need coordinated safeguards and verification.
 - **Sessions:** logout and password changes revoke refresh sessions. Existing access
   JWTs may remain usable until expiry (15 minutes by default), except deleted users
   are rejected by the JWT strategy. Immediate access-token revocation, browser cookie
@@ -45,7 +48,7 @@ Compose setup is not a production deployment configuration.
   - Type-safe `@CurrentUser()` custom decorator for extracting authenticated identity.
 - **User Management (CRUD)**:
   - Public registration, permission-protected account listing, self-service profile updates, and soft deletion.
-  - Account deletion allows self-service or platform USER delete permission; ownership and last-admin protections remain pending.
+  - Account deletion allows self-service or platform USER delete permission; owners of undeleted organizations are protected. Last-admin protection remains pending.
   - Robust request validation powered by `class-validator` and `ParseUUIDPipe`.
 - **S3-Compatible Avatar Storage**:
   - Single-part image uploads via Multer interceptor.
@@ -326,7 +329,10 @@ seeded role and permission records. Bootstrap refuses to promote an ordinary
 account with the configured email, restore a revoked admin assignment, or reuse
 a soft-deleted admin account. Changing the seed password does not reset the
 existing account's password. All bootstrap fields are still required on reruns.
-Run the seed explicitly; it does not run at application startup.
+Bootstrap refuses to create a second active SUPER_ADMIN for a different email.
+This is a bootstrap policy, not a database uniqueness constraint on role holders;
+future assignment APIs must enforce the same single-holder rule and protect the
+reserved role from unauthorized mutation. Run the seed explicitly; it does not run at application startup.
 
 The admin logs in through `POST /auth/login` normally. `GET /users` requires
 the platform permission `USER:read`; authenticated users without it receive
@@ -339,11 +345,19 @@ remain to be implemented; bootstrap records alone do not protect a route.
 Platform permission queries are shared through `PermissionsService`, which the
 guard uses and domain policies can call for checks such as self-or-permission.
 It exposes single-permission and all-permissions checks. `DELETE /users/:id`
-allows self-deletion or platform `USER:delete`. Deletion and refresh-token revocation
-run in a serializable transaction with conflict retries. Ownership and last-admin
-deletion safeguards and explicit idempotent repeat deletion are not implemented
-in the current code. Memberships, role assignments, and the current avatar are
-retained; JWT authentication rejects deleted users. RBAC work is paused; the
+passes actor/target IDs to the shared deletion service. It verifies the active
+actor and permits self-deletion or platform `USER:delete` within the same
+serializable transaction as deletion and refresh-token revocation. Both paths
+return HTTP 409 for owners of undeleted organizations (including inactive ones)
+and any target holding an active global system SUPER_ADMIN assignment, regardless
+of who calls. Other platform admins are not protected by an admin-count rule;
+USER:delete and ownership checks still apply. Missing targets return
+404; authorized repeat deletion is a no-op returning 204. Inactive actors receive
+401, and unauthorized cross-account deletion receives 403 before target lookup.
+Memberships, role assignments, and the current avatar are retained; JWT
+authentication rejects deleted users. Audit recording is intentionally deferred.
+See [USER_DELETION_VERIFICATION.md](USER_DELETION_VERIFICATION.md) for the real
+database scenarios, retry fix, and verification limits. The
 remaining authorization work is summarized in Project Status and Remaining Work.
 
 Organization ownership is stored separately in `Organization.ownerId`.
@@ -465,6 +479,27 @@ npm test
 
 # Run e2e tests
 npm run test:e2e
+```
+
+Deletion regression tests include bounded transaction retries and an opt-in
+PostgreSQL integration suite. The default `npm test` runs unit tests and skips
+database fixtures. To run the deletion suite against local PostgreSQL:
+
+```powershell
+$env:RUN_DATABASE_TESTS = 'true'
+npm test -- src/core/database/prisma.service.spec.ts test/users-deletion.integration.spec.ts
+Remove-Item Env:RUN_DATABASE_TESTS
+```
+
+The integration suite creates a unique temporary schema, applies checked-in
+migrations there, and removes it after testing. It refuses non-local database
+hosts and requires permission to create/drop that temporary schema. Application
+records are not used as fixtures. Do not stop PostgreSQL during this suite.
+
+Type-check these tests with the project aliases:
+
+```bash
+npx tsc -p test/tsconfig.deletion.json
 ```
 
 ---

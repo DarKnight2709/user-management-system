@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "types": ["vitest/globals", "node", "multer"]
+  },
+  "include": [
+    "./users-deletion.integration.spec.ts",
+    "../src/core/database/prisma.service.spec.ts"
+  ]
+}
