@@ -400,6 +400,19 @@ bulk before querying the page. Its work grows with the caller's memberships;
 large-membership optimization remains future work. Offset pages can shift
 between requests as organizations or access change.
 
+`PATCH /organizations/:organizationId` accepts `{ "name": "New Team Name" }`
+and returns 200 with updated organization details. The name is required, trimmed,
+and limited to 1–100 characters. Empty bodies and unknown fields (including slug,
+ownerId, isActive, deletedAt, members, and roles) return 422. Ownership transfer,
+slug changes, activation/deletion, and role management are separate operations.
+The global guard requires ORGANIZATION update. The service rechecks active actor
+and organization access inside the same serializable transaction as the write:
+active owners or members with active same-organization update grants may rename;
+ordinary MEMBER roles lack this permission by default. Platform roles provide no
+bypass. Missing/deleted actors receive 401, malformed organization UUIDs 400,
+and inaccessible/nonexistent organizations 403. Writes explicitly allowlist name;
+the response contains the same detail fields as organization reads.
+
 The admin logs in through `POST /auth/login` normally. `GET /users` requires
 the platform permission `USER:read`; authenticated users without it receive
 HTTP 403. The global `PermissionsGuard` runs after authentication and
