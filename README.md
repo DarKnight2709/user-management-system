@@ -372,6 +372,18 @@ soft-deleted organizations), and missing/revoked default permissions receive 503
 without partial provisioning. Seed the catalog first. Existing global JWT and
 IP throttling guards apply; no existing organization membership is required.
 
+`GET /organizations/:organizationId` returns organization details (id, name,
+slug, ownerId, isActive, createdAt, updatedAt) without member or role records.
+It requires active membership in an active, undeleted organization and an active
+user. Owners pass through ownerId; other members require ORGANIZATION read
+through active, same-organization non-system roles and permission links.
+Platform roles provide no bypass. The global guard and the service share
+PermissionsService.hasOrganizationPermissions; the service rechecks actor state
+and permission in the same transaction snapshot as the read. Missing/deleted
+actors receive 401, malformed organization UUIDs receive 400, and inaccessible
+or nonexistent organizations receive the same 403. Organization listing is not
+implemented yet.
+
 The admin logs in through `POST /auth/login` normally. `GET /users` requires
 the platform permission `USER:read`; authenticated users without it receive
 HTTP 403. The global `PermissionsGuard` runs after authentication and

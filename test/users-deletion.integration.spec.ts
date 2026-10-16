@@ -28,6 +28,10 @@ import { compare } from '../src/common/utils/hash.util.js';
 import { ListUsersQueryDto } from '../src/modules/users/dto/list-users-query.dto.js';
 import { OrganizationsService } from '../src/modules/organizations/organizations.service.js';
 import { seedOrganizationPermissions } from '../prisma/seeds/organization-permissions.seed.js';
+import { OrganizationsController } from '../src/modules/organizations/organizations.controller.js';
+import { PermissionsGuard } from '../src/common/guards/permissions.guard.js';
+import { Reflector } from '@nestjs/core';
+import type { ExecutionContext } from '@nestjs/common';
 
 // Explicit opt-in; all fixtures live in a disposable schema, never application tables.
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
@@ -240,9 +244,9 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
       }
     });
 
-    describe('Organization creation', () => {
-      const organizations = () =>
-        new OrganizationsService({
+    const organizations = () =>
+      new OrganizationsService(
+        {
           serializableTransaction<T>(
             operation: (manager: Prisma.TransactionClient) => Promise<T>,
           ): Promise<T> {
@@ -253,7 +257,220 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
               operation,
             ) as Promise<T>;
           },
-        } as PrismaService);
+        } as PrismaService,
+        new PermissionsService(db as unknown as PrismaService),
+      );
+
+    describe('Organization reads', () => {
+      let organizationId: string;
+      let membershipId: string;
+      let memberRoleId: string;
+      beforeEach(async () => {
+        await seedOrganizationPermissions(db);
+        const org = await organizations().create(regularId, {
+          name: 'Read fixture',
+          slug: `read-${randomUUID()}`,
+        });
+        organizationId = org.id;
+        const role = await db.role.findFirstOrThrow({
+          where: { organizationId, name: 'MEMBER' },
+        });
+        memberRoleId = role.id;
+        const member = await db.organizationMember.create({
+          data: {
+            userId: adminId,
+            organizationId,
+            memberRoles: { create: { roleId: role.id } },
+          },
+        });
+        membershipId = member.id;
+      });
+
+      it.each(['owner', 'member'])(
+        'allows an active %s and returns only organization details',
+        async (actor) => {
+          const result = await organizations().findOneForActor(
+            actor === 'owner' ? regularId : adminId,
+            organizationId,
+          );
+          expect(result).toMatchObject({
+            id: organizationId,
+            ownerId: regularId,
+            isActive: true,
+          });
+          expect(Object.keys(result).sort()).toEqual(
+            [
+              'id',
+              'name',
+              'slug',
+              'ownerId',
+              'isActive',
+              'createdAt',
+              'updatedAt',
+            ].sort(),
+          );
+        },
+      );
+      it('denies a platform SUPER_ADMIN without organization membership', async () => {
+        await expect(
+          organizations().findOneForActor(superId, organizationId),
+        ).rejects.toMatchObject({ status: 403 });
+      });
+      it.each(['missing', 'deleted'])(
+        'denies a %s service actor with 401',
+        async (state) => {
+          if (state === 'deleted')
+            await db.user.update({
+              where: { id: adminId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(
+            organizations().findOneForActor(
+              state === 'missing' ? randomUUID() : adminId,
+              organizationId,
+            ),
+          ).rejects.toMatchObject({ status: 401 });
+        },
+      );
+      it.each([
+        'inactive organization',
+        'deleted organization',
+        'suspended member',
+        'invited member',
+        'deleted member',
+        'assignment',
+        'role',
+        'link',
+        'permission',
+        'legacy OWNER',
+      ])('denies access after %s', async (state) => {
+        if (state === 'inactive organization')
+          await db.organization.update({
+            where: { id: organizationId },
+            data: { isActive: false },
+          });
+        if (state === 'deleted organization')
+          await db.organization.update({
+            where: { id: organizationId },
+            data: { deletedAt: new Date() },
+          });
+        if (state === 'suspended member' || state === 'invited member')
+          await db.organizationMember.update({
+            where: { id: membershipId },
+            data: {
+              status: state === 'suspended member' ? 'SUSPENDED' : 'INVITED',
+            },
+          });
+        if (state === 'deleted member')
+          await db.organizationMember.update({
+            where: { id: membershipId },
+            data: { deletedAt: new Date() },
+          });
+        if (state === 'assignment')
+          await db.memberRole.updateMany({
+            where: { organizationMemberId: membershipId },
+            data: { deletedAt: new Date() },
+          });
+        if (state === 'role')
+          await db.role.update({
+            where: { id: memberRoleId },
+            data: { deletedAt: new Date() },
+          });
+        if (state === 'link')
+          await db.rolePermission.updateMany({
+            where: { roleId: memberRoleId },
+            data: { deletedAt: new Date() },
+          });
+        if (state === 'permission')
+          await db.permission.update({
+            where: {
+              action_resource: { resource: 'ORGANIZATION', action: 'read' },
+            },
+            data: { deletedAt: new Date() },
+          });
+        if (state === 'legacy OWNER')
+          await db.role.update({
+            where: { id: memberRoleId },
+            data: { name: 'OWNER' },
+          });
+        await expect(
+          organizations().findOneForActor(adminId, organizationId),
+        ).rejects.toMatchObject({ status: 403 });
+      });
+      it('does not let owner bypass suspended membership', async () => {
+        await db.organizationMember.updateMany({
+          where: { organizationId, userId: regularId },
+          data: { status: 'SUSPENDED' },
+        });
+        await expect(
+          organizations().findOneForActor(regularId, organizationId),
+        ).rejects.toMatchObject({ status: 403 });
+      });
+      it('denies missing organizations with the same 403 as inaccessible ones', async () => {
+        await expect(
+          organizations().findOneForActor(adminId, randomUUID()),
+        ).rejects.toMatchObject({ status: 403 });
+      });
+      it('rejects a role assigned from another organization', async () => {
+        const other = await organizations().create(superId, {
+          name: 'Other',
+          slug: `other-${randomUUID()}`,
+        });
+        const role = await db.role.findFirstOrThrow({
+          where: { organizationId: other.id, name: 'ADMIN' },
+        });
+        await db.memberRole.updateMany({
+          where: { organizationMemberId: membershipId },
+          data: { roleId: role.id },
+        });
+        await expect(
+          organizations().findOneForActor(adminId, organizationId),
+        ).rejects.toMatchObject({ status: 403 });
+      });
+      it('fails closed for empty permission requirements', async () => {
+        expect(
+          await new PermissionsService(
+            db as unknown as PrismaService,
+          ).hasOrganizationPermissions(regularId, organizationId, []),
+        ).toBe(false);
+      });
+      it('enforces route permission metadata and UUID validation in the guard', async () => {
+        const guard = new PermissionsGuard(
+          new Reflector(),
+          new PermissionsService(db as unknown as PrismaService),
+        );
+        const context = (actorId: string, id: string) =>
+          ({
+            getHandler: () =>
+              Object.getOwnPropertyDescriptor(
+                OrganizationsController.prototype,
+                'findOne',
+              )!.value,
+            getClass: () => OrganizationsController,
+            switchToHttp: () => ({
+              getRequest: () => ({
+                user: { id: actorId },
+                params: { organizationId: id },
+              }),
+            }),
+          }) as unknown as ExecutionContext;
+        await expect(
+          guard.canActivate(context(regularId, organizationId)),
+        ).resolves.toBe(true);
+        await expect(
+          guard.canActivate(context(superId, organizationId)),
+        ).rejects.toMatchObject({ status: 403 });
+        await expect(
+          guard.canActivate(context(regularId, 'invalid')),
+        ).rejects.toMatchObject({ status: 400 });
+        const result = await new OrganizationsController(
+          organizations(),
+        ).findOne(adminId, organizationId);
+        expect(result.id).toBe(organizationId);
+      });
+    });
+
+    describe('Organization creation', () => {
       const input = () => ({
         name: 'Fixture team',
         slug: `team-${randomUUID()}`,

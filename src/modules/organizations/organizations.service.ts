@@ -1,11 +1,13 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { CreateOrganizationDto } from './dto/create-organization.dto.js';
+import { PermissionsService } from '@/common/services/permissions.service.js';
 
 const adminPermissions = [
   { resource: 'ORGANIZATION', action: 'read' },
@@ -18,7 +20,40 @@ const adminPermissions = [
 
 @Injectable()
 export class OrganizationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly permissionsService: PermissionsService,
+  ) {}
+
+  async findOneForActor(actorId: string, organizationId: string) {
+    return this.prisma.serializableTransaction(async (manager) => {
+      const actor = await manager.user.findUnique({
+        where: { id: actorId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!actor) throw new UnauthorizedException('Authentication required');
+      const allowed = await this.permissionsService.hasOrganizationPermissions(
+        actorId,
+        organizationId,
+        [{ resource: 'ORGANIZATION', action: 'read' }],
+        manager,
+      );
+      // Missing and inaccessible organizations have the same response.
+      if (!allowed) throw new ForbiddenException('Organization access denied');
+      return manager.organization.findUniqueOrThrow({
+        where: { id: organizationId, deletedAt: null, isActive: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          ownerId: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    });
+  }
 
   async create(actorId: string, dto: CreateOrganizationDto) {
     return this.prisma.serializableTransaction(async (manager) => {
