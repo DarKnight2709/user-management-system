@@ -344,6 +344,14 @@ remain to be implemented; bootstrap records alone do not protect a route.
 
 Platform permission queries are shared through `PermissionsService`, which the
 guard uses and domain policies can call for checks such as self-or-permission.
+`GET /users/:id` delegates to `UsersService.findOneForActor`: an active user may
+read their own account, or another account with active platform `USER:read`.
+Even SUPER_ADMIN needs that permission for cross-account access. The service
+checks actor state and permission before target lookup in one transaction:
+inactive/missing actor is 401, unauthorized cross-account access is 403 regardless
+of target existence, and an authorized missing/deleted target is 404. Responses
+omit the password hash and replace the stored avatar key with its public URL.
+
 It exposes single-permission and all-permissions checks. `DELETE /users/:id`
 passes actor/target IDs to the shared deletion service. It verifies the active
 actor and permits self-deletion or platform `USER:delete` within the same
@@ -481,7 +489,8 @@ npm test
 npm run test:e2e
 ```
 
-Deletion regression tests include bounded transaction retries and an opt-in
+Account policy regression tests include actor-aware profile reads, deletion,
+bounded transaction retries, and an opt-in
 PostgreSQL integration suite. The default `npm test` runs unit tests and skips
 database fixtures. To run the deletion suite against local PostgreSQL:
 
