@@ -25,6 +25,7 @@ import type { AvatarCleanupService } from '../src/modules/users/avatar-cleanup.s
 import { JwtStrategy } from '../src/modules/auth/strategies/jwt.strategy.js';
 import { seedAdmin, AdminSeedError } from '../prisma/seeds/admin.seed.js';
 import { compare } from '../src/common/utils/hash.util.js';
+import { ListUsersQueryDto } from '../src/modules/users/dto/list-users-query.dto.js';
 
 // Explicit opt-in; all fixtures live in a disposable schema, never application tables.
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
@@ -235,6 +236,167 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         }
         await ddl?.end();
       }
+    });
+
+    describe('Authorized paginated account listing', () => {
+      it.each(['super admin', 'platform admin'])(
+        'allows %s with USER:read and safe defaults',
+        async (actor) => {
+          const response = await service().findAllForActor({
+            actorId: actor === 'super admin' ? superId : adminId,
+          });
+          expect(response).toMatchObject({ page: 1, limit: 20, total: 3 });
+          expect(response.items).toHaveLength(3);
+          for (const item of response.items) {
+            expect(item).not.toHaveProperty('hashedPassword');
+            expect(item).not.toHaveProperty('avatarKey');
+            expect(item.avatarUrl).toMatch(
+              /^http:\/\/storage.invalid\/avatars\//,
+            );
+          }
+        },
+      );
+
+      it('rejects direct service calls by ordinary users', async () => {
+        await expect(
+          service().findAllForActor({ actorId: regularId }),
+        ).rejects.toMatchObject({ status: 403 });
+      });
+
+      it.each(['missing', 'deleted'])('rejects a %s actor', async (state) => {
+        if (state === 'deleted')
+          await db.user.update({
+            where: { id: adminId },
+            data: { deletedAt: new Date() },
+          });
+        await expect(
+          service().findAllForActor({
+            actorId: state === 'missing' ? randomUUID() : adminId,
+          }),
+        ).rejects.toMatchObject({ status: 401 });
+      });
+
+      it.each([
+        'assignment',
+        'role',
+        'link',
+        'permission',
+        'organization role',
+        'delete only',
+      ])('rejects listing through %s', async (invalid) => {
+        const permission = await db.permission.findUniqueOrThrow({
+          where: { action_resource: { action: 'read', resource: 'USER' } },
+        });
+        if (invalid === 'assignment')
+          await db.userPlatformRole.updateMany({
+            where: { userId: adminId },
+            data: { deletedAt: new Date() },
+          });
+        if (invalid === 'role')
+          await db.role.update({
+            where: { id: adminRoleId },
+            data: { deletedAt: new Date() },
+          });
+        if (invalid === 'link' || invalid === 'delete only')
+          await db.rolePermission.updateMany({
+            where: { roleId: adminRoleId, permissionId: permission.id },
+            data: { deletedAt: new Date() },
+          });
+        if (invalid === 'permission')
+          await db.permission.update({
+            where: { id: permission.id },
+            data: { deletedAt: new Date() },
+          });
+        if (invalid === 'organization role') {
+          const org = await db.organization.create({
+            data: { name: 'Fixture', slug: randomUUID(), ownerId: superId },
+          });
+          const role = await db.role.create({
+            data: {
+              name: 'ADMIN',
+              organizationId: org.id,
+              rolePermissions: { create: { permissionId: permission.id } },
+            },
+          });
+          await db.userPlatformRole.updateMany({
+            where: { userId: adminId },
+            data: { roleId: role.id },
+          });
+        }
+        await expect(
+          service().findAllForActor({ actorId: adminId }),
+        ).rejects.toMatchObject({ status: 403 });
+      });
+
+      it('does not bypass listing permissions for SUPER_ADMIN', async () => {
+        await db.rolePermission.updateMany({
+          where: { roleId: superRoleId },
+          data: { deletedAt: new Date() },
+        });
+        await expect(
+          service().findAllForActor({ actorId: superId }),
+        ).rejects.toMatchObject({ status: 403 });
+      });
+
+      it('uses stable ID ordering when creation timestamps tie and pages do not overlap', async () => {
+        await db.user.updateMany({
+          data: { createdAt: new Date('2020-01-01') },
+        });
+        const ids: string[] = [];
+        for (const page of [1, 2, 3]) {
+          const result = await service().findAllForActor({
+            actorId: adminId,
+            page,
+            limit: 1,
+          });
+          expect(result).toMatchObject({ total: 3, page, limit: 1 });
+          expect(result.items).toHaveLength(1);
+          ids.push(result.items[0].id);
+        }
+        expect(ids).toEqual([superId, adminId, regularId].sort());
+      });
+
+      it('excludes soft-deleted users from both count and items', async () => {
+        await db.user.update({
+          where: { id: regularId },
+          data: { deletedAt: new Date() },
+        });
+        const result = await service().findAllForActor({ actorId: superId });
+        expect(result.total).toBe(2);
+        expect(result.items.map((user) => user.id)).not.toContain(regularId);
+      });
+
+      it('returns an empty page with the real total beyond the last page', async () => {
+        await expect(
+          service().findAllForActor({ actorId: adminId, page: 10, limit: 2 }),
+        ).resolves.toMatchObject({ items: [], total: 3, page: 10, limit: 2 });
+      });
+
+      it.each([
+        { page: 0 },
+        { page: 1.5 },
+        { page: 1_000_001 },
+        { limit: 0 },
+        { limit: 101 },
+        { limit: Number.NaN },
+      ])('bounds pagination for direct service calls: %j', async (query) => {
+        await expect(
+          service().findAllForActor({ actorId: adminId, ...query }),
+        ).rejects.toMatchObject({ status: 422 });
+      });
+
+      it('forwards the query and authenticated actor through the controller', async () => {
+        const query = Object.assign(new ListUsersQueryDto(), {
+          page: 2,
+          limit: 1,
+        });
+        const response = await new UsersController(service()).findAll(
+          query,
+          adminId,
+        );
+        expect(response).toMatchObject({ total: 3, page: 2, limit: 1 });
+        expect(response.items).toHaveLength(1);
+      });
     });
 
     describe('Actor-aware account reads', () => {

@@ -342,6 +342,19 @@ permissions in the database on each request. Organization roles do not grant
 platform permissions. Other platform operations and organization service flows
 remain to be implemented; bootstrap records alone do not protect a route.
 
+`GET /users?page=1&limit=20` also rechecks the active actor and platform
+`USER:read` inside `UsersService.findAllForActor`. Missing/deleted actors receive
+401; callers without the permission receive 403, including SUPER_ADMIN when its
+permission is missing. Listing excludes soft-deleted users, omits password hashes,
+and returns public avatar URLs instead of storage keys.
+
+The response envelope's `data` is now `{ items, total, page, limit }`, replacing
+the previous array. Clients must read `data.items`. Defaults are page 1 and
+limit 20; page must be an integer from 1 to 1,000,000 and limit from 1 to 100.
+Invalid pagination returns 422. Results sort by creation time descending, then
+ID ascending; the count and page share one transaction snapshot. Offset pages
+can shift between requests when accounts are created or deleted.
+
 Platform permission queries are shared through `PermissionsService`, which the
 guard uses and domain policies can call for checks such as self-or-permission.
 `GET /users/:id` delegates to `UsersService.findOneForActor`: an active user may
@@ -489,14 +502,15 @@ npm test
 npm run test:e2e
 ```
 
-Account policy regression tests include actor-aware profile reads, deletion,
+Account policy regression tests include authorized pagination, query validation,
+actor-aware profile reads, deletion,
 bounded transaction retries, and an opt-in
 PostgreSQL integration suite. The default `npm test` runs unit tests and skips
-database fixtures. To run the deletion suite against local PostgreSQL:
+database fixtures. To run the account policy suite against local PostgreSQL:
 
 ```powershell
 $env:RUN_DATABASE_TESTS = 'true'
-npm test -- src/core/database/prisma.service.spec.ts test/users-deletion.integration.spec.ts
+npm test -- src/core/database/prisma.service.spec.ts src/modules/users/dto/list-users-query.dto.spec.ts test/users-deletion.integration.spec.ts
 Remove-Item Env:RUN_DATABASE_TESTS
 ```
 
