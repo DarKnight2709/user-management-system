@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -44,10 +43,10 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') currentUserId: string,
   ): Promise<User> {
-    if (id !== currentUserId) {
-      throw new ForbiddenException('Access denied');
-    }
-    return this.usersService.findOne(id);
+    return this.usersService.findOneForActor({
+      actorId: currentUserId,
+      targetId: id,
+    });
   }
 
   // update

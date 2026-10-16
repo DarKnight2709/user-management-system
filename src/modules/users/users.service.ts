@@ -54,6 +54,7 @@ export class UsersService {
     return this.toUserResponse(user);
   }
 
+  /** Internal active-user lookup for JWT validation and avatar upload. */
   async findOne(id: string): Promise<User> {
     const existingUser = await this.prismaService.user.findUnique({
       where: { id, deletedAt: null },
@@ -65,6 +66,43 @@ export class UsersService {
     }
 
     return this.toUserResponse(existingUser);
+  }
+
+  /** Public account reads require self-access or platform USER:read. */
+  async findOneForActor({
+    actorId,
+    targetId,
+  }: {
+    actorId: string;
+    targetId: string;
+  }): Promise<User> {
+    const user = await this.prismaService.serializableTransaction(
+      async (manager) => {
+        const actor = await manager.user.findUnique({
+          where: { id: actorId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!actor) throw new UnauthorizedException('Authentication required');
+
+        if (actorId !== targetId) {
+          const allowed = await this.permissionsService.hasPlatformPermission(
+            actorId,
+            { resource: 'USER', action: 'read' },
+            manager,
+          );
+          if (!allowed) throw new ForbiddenException('Access denied');
+        }
+
+        // Authorize first: callers without permission must not discover target existence.
+        const target = await manager.user.findUnique({
+          where: { id: targetId, deletedAt: null },
+          omit: { hashedPassword: true },
+        });
+        if (!target) throw new NotFoundException('User not found');
+        return target;
+      },
+    );
+    return this.toUserResponse(user);
   }
 
   async create(user: CreateUserDto): Promise<User> {

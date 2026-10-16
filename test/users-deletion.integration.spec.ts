@@ -28,7 +28,7 @@ import { compare } from '../src/common/utils/hash.util.js';
 
 // Explicit opt-in; all fixtures live in a disposable schema, never application tables.
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
-  'User deletion: local PostgreSQL',
+  'User account policies: local PostgreSQL',
   () => {
     const schema = `codex_delete_test_${randomUUID().replaceAll('-', '')}`;
     let ddl: pg.Client | undefined;
@@ -81,7 +81,10 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
       const prisma = host as unknown as PrismaService;
       return new UsersService(
         prisma,
-        {} as S3Service,
+        {
+          getPublicUrl: (key: string | null | undefined) =>
+            key ? `http://storage.invalid/avatars/${key}` : null,
+        } as S3Service,
         {} as AvatarCleanupService,
         new PermissionsService(prisma),
       );
@@ -232,6 +235,163 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         }
         await ddl?.end();
       }
+    });
+
+    describe('Actor-aware account reads', () => {
+      const readAs = (actorId: string, targetId: string) =>
+        service().findOneForActor({ actorId, targetId });
+
+      it('allows regular self-access and returns no password hash or storage key', async () => {
+        const response = await readAs(regularId, regularId);
+        expect(response.id).toBe(regularId);
+        expect(response).not.toHaveProperty('hashedPassword');
+        expect(response).not.toHaveProperty('avatarKey');
+        expect(response.avatarUrl).toMatch(
+          /^http:\/\/storage.invalid\/avatars\//,
+        );
+      });
+
+      it.each(['super admin', 'platform admin'])(
+        'allows cross-account reads by %s with USER:read',
+        async (actor) => {
+          const response = await readAs(
+            actor === 'super admin' ? superId : adminId,
+            regularId,
+          );
+          expect(response.id).toBe(regularId);
+          expect(response).not.toHaveProperty('hashedPassword');
+          expect(response).not.toHaveProperty('avatarKey');
+        },
+      );
+
+      it.each(['missing', 'deleted'])(
+        'rejects a %s reader with 401',
+        async (state) => {
+          if (state === 'deleted')
+            await db.user.update({
+              where: { id: adminId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(
+            readAs(state === 'missing' ? randomUUID() : adminId, regularId),
+          ).rejects.toMatchObject({ status: 401 });
+        },
+      );
+
+      it.each(['existing', 'missing', 'deleted'])(
+        'does not disclose a %s account to an unauthorized reader',
+        async (state) => {
+          if (state === 'deleted')
+            await db.user.update({
+              where: { id: adminId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(
+            readAs(regularId, state === 'missing' ? randomUUID() : adminId),
+          ).rejects.toMatchObject({ status: 403 });
+        },
+      );
+
+      it.each(['missing', 'deleted'])(
+        'returns 404 for an authorized %s target',
+        async (state) => {
+          if (state === 'deleted')
+            await db.user.update({
+              where: { id: regularId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(
+            readAs(adminId, state === 'missing' ? randomUUID() : regularId),
+          ).rejects.toMatchObject({ status: 404 });
+        },
+      );
+
+      it.each([
+        'assignment',
+        'role',
+        'link',
+        'permission',
+        'organization role',
+        'delete only',
+      ])('rejects cross-account reads through %s', async (invalid) => {
+        const readPermission = await db.permission.findUniqueOrThrow({
+          where: { action_resource: { action: 'read', resource: 'USER' } },
+        });
+        if (invalid === 'assignment')
+          await db.userPlatformRole.updateMany({
+            where: { userId: adminId },
+            data: { deletedAt: new Date() },
+          });
+        if (invalid === 'role')
+          await db.role.update({
+            where: { id: adminRoleId },
+            data: { deletedAt: new Date() },
+          });
+        if (invalid === 'link' || invalid === 'delete only')
+          await db.rolePermission.updateMany({
+            where: { roleId: adminRoleId, permissionId: readPermission.id },
+            data: { deletedAt: new Date() },
+          });
+        if (invalid === 'permission')
+          await db.permission.update({
+            where: { id: readPermission.id },
+            data: { deletedAt: new Date() },
+          });
+        if (invalid === 'organization role') {
+          const org = await db.organization.create({
+            data: { name: 'Fixture', slug: randomUUID(), ownerId: superId },
+          });
+          const role = await db.role.create({
+            data: {
+              name: 'ADMIN',
+              organizationId: org.id,
+              rolePermissions: { create: { permissionId: readPermission.id } },
+            },
+          });
+          await db.userPlatformRole.updateMany({
+            where: { userId: adminId },
+            data: { roleId: role.id },
+          });
+        }
+        await expect(readAs(adminId, regularId)).rejects.toMatchObject({
+          status: 403,
+        });
+        // Revoking platform authority must not block an active user's own profile.
+        await expect(readAs(adminId, adminId)).resolves.toMatchObject({
+          id: adminId,
+        });
+      });
+
+      it('does not grant a SUPER_ADMIN permission bypass', async () => {
+        await db.rolePermission.updateMany({
+          where: { roleId: superRoleId },
+          data: { deletedAt: new Date() },
+        });
+        await expect(readAs(superId, regularId)).rejects.toMatchObject({
+          status: 403,
+        });
+        await expect(readAs(superId, superId)).resolves.toMatchObject({
+          id: superId,
+        });
+      });
+
+      it('forwards the authenticated actor and requested target through the controller', async () => {
+        const response = await new UsersController(service()).findOne(
+          regularId,
+          adminId,
+        );
+        expect(response.id).toBe(regularId);
+      });
+
+      it('keeps the internal active-user lookup usable for JWT validation', async () => {
+        const strategy = new JwtStrategy(
+          new ConfigService({ JWT_ACCESS_TOKEN_SECRET: randomUUID() }),
+          service(),
+        );
+        await expect(
+          strategy.validate({ sub: regularId }),
+        ).resolves.toMatchObject({ id: regularId });
+      });
     });
 
     it.each(['missing', 'deleted'])(
