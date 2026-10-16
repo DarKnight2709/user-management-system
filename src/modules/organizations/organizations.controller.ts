@@ -5,18 +5,35 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { CreateOrganizationDto } from './dto/create-organization.dto.js';
 import { OrganizationsService } from './organizations.service.js';
 import { RequireOrganizationPermissions } from '@/common/decorators/require-organization-permissions.decorator.js';
+import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto.js';
 
 @ApiTags('Organizations')
 @ApiBearerAuth()
 @Controller('organizations')
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'List organizations accessible to the current user',
+  })
+  async findAll(
+    @CurrentUser('id') actorId: string,
+    @Query() query: ListOrganizationsQueryDto,
+  ) {
+    return this.organizationsService.findAllForActor({
+      actorId,
+      page: query.page,
+      limit: query.limit,
+    });
+  }
 
   @Get(':organizationId')
   @RequireOrganizationPermissions({ resource: 'ORGANIZATION', action: 'read' })

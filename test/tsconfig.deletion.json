@@ -8,6 +8,7 @@
   "include": [
     "./users-deletion.integration.spec.ts",
     "../src/core/database/prisma.service.spec.ts",
-    "../src/modules/users/dto/list-users-query.dto.spec.ts"
+    "../src/modules/users/dto/list-users-query.dto.spec.ts",
+    "../src/modules/organizations/dto/list-organizations-query.dto.spec.ts"
   ]
 }

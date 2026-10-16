@@ -14,10 +14,25 @@ export class PermissionsService {
     required: OrganizationPermission[],
     manager: Prisma.TransactionClient = this.prisma,
   ): Promise<boolean> {
-    if (!userId.trim() || !organizationId.trim() || required.length === 0)
-      return false;
+    if (!organizationId.trim()) return false;
+    const ids = await this.findAuthorizedOrganizationIds(
+      userId,
+      required,
+      manager,
+      organizationId,
+    );
+    return ids.length > 0;
+  }
 
-    const membership = await manager.organizationMember.findFirst({
+  async findAuthorizedOrganizationIds(
+    userId: string,
+    required: OrganizationPermission[],
+    manager: Prisma.TransactionClient = this.prisma,
+    organizationId?: string,
+  ): Promise<string[]> {
+    if (!userId.trim() || required.length === 0) return [];
+
+    const memberships = await manager.organizationMember.findMany({
       where: {
         userId,
         organizationId,
@@ -27,6 +42,7 @@ export class PermissionsService {
         organization: { deletedAt: null, isActive: true },
       },
       select: {
+        organizationId: true,
         organization: { select: { ownerId: true } },
         memberRoles: {
           where: {
@@ -41,6 +57,7 @@ export class PermissionsService {
           select: {
             role: {
               select: {
+                organizationId: true,
                 rolePermissions: {
                   where: {
                     deletedAt: null,
@@ -56,20 +73,28 @@ export class PermissionsService {
         },
       },
     });
-    if (!membership) return false;
-    // Ownership requires active membership, user, and organization too.
-    if (membership.organization.ownerId === userId) return true;
-
-    const granted = membership.memberRoles.flatMap(({ role }) =>
-      role.rolePermissions.map(({ permission }) => permission),
-    );
-    return required.every((needed) =>
-      granted.some(
-        (permission) =>
-          permission.resource === needed.resource &&
-          permission.action === needed.action,
-      ),
-    );
+    return memberships
+      .filter((membership) => {
+        // Ownership still requires the active membership/user/organization filters.
+        if (membership.organization.ownerId === userId) return true;
+        const granted = membership.memberRoles
+          // During listing there is no single organizationId filter. Reject even
+          // malformed cross-organization assignments before considering their grants.
+          .filter(
+            ({ role }) => role.organizationId === membership.organizationId,
+          )
+          .flatMap(({ role }) =>
+            role.rolePermissions.map(({ permission }) => permission),
+          );
+        return required.every((needed) =>
+          granted.some(
+            (permission) =>
+              permission.resource === needed.resource &&
+              permission.action === needed.action,
+          ),
+        );
+      })
+      .map((membership) => membership.organizationId);
   }
 
   hasPlatformPermission(

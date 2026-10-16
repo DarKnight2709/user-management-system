@@ -32,6 +32,7 @@ import { OrganizationsController } from '../src/modules/organizations/organizati
 import { PermissionsGuard } from '../src/common/guards/permissions.guard.js';
 import { Reflector } from '@nestjs/core';
 import type { ExecutionContext } from '@nestjs/common';
+import { ListOrganizationsQueryDto } from '../src/modules/organizations/dto/list-organizations-query.dto.js';
 
 // Explicit opt-in; all fixtures live in a disposable schema, never application tables.
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
@@ -287,6 +288,101 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
       });
 
       it.each(['owner', 'member'])(
+        'lists only accessible details for an active %s',
+        async (actor) => {
+          const result = await organizations().findAllForActor({
+            actorId: actor === 'owner' ? regularId : adminId,
+          });
+          expect(result).toMatchObject({ total: 1, page: 1, limit: 20 });
+          expect(result.items).toHaveLength(1);
+          expect(result.items[0].id).toBe(organizationId);
+          expect(result.items[0]).not.toHaveProperty('members');
+          expect(result.items[0]).not.toHaveProperty('roles');
+          expect(result.items[0]).not.toHaveProperty('deletedAt');
+        },
+      );
+      it('returns an empty list for a platform admin with no memberships', async () => {
+        await expect(
+          organizations().findAllForActor({ actorId: superId }),
+        ).resolves.toEqual({ items: [], total: 0, page: 1, limit: 20 });
+      });
+      it('filters access before counting and pagination, with deterministic creation-time ties', async () => {
+        const owned = await organizations().create(adminId, {
+          name: 'Owned',
+          slug: `owned-${randomUUID()}`,
+        });
+        await organizations().create(superId, {
+          name: 'Hidden',
+          slug: `hidden-${randomUUID()}`,
+        });
+        await db.organization.updateMany({
+          data: { createdAt: new Date('2020-01-01') },
+        });
+        const expected = [owned.id, organizationId].sort();
+        for (const page of [1, 2, 3]) {
+          const result = await organizations().findAllForActor({
+            actorId: adminId,
+            page,
+            limit: 1,
+          });
+          expect(result).toMatchObject({ total: 2, page, limit: 1 });
+          expect(result.items.map((item) => item.id)).toEqual(
+            page <= 2 ? [expected[page - 1]] : [],
+          );
+        }
+      });
+      it('does not duplicate organizations when multiple roles grant read', async () => {
+        const role = await db.role.findFirstOrThrow({
+          where: { organizationId, name: 'ADMIN' },
+        });
+        await db.memberRole.create({
+          data: { organizationMemberId: membershipId, roleId: role.id },
+        });
+        const result = await organizations().findAllForActor({
+          actorId: adminId,
+        });
+        expect(result.total).toBe(1);
+        expect(result.items).toHaveLength(1);
+      });
+      it.each(['missing', 'deleted'])(
+        'rejects listing for a %s actor',
+        async (state) => {
+          if (state === 'deleted')
+            await db.user.update({
+              where: { id: adminId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(
+            organizations().findAllForActor({
+              actorId: state === 'missing' ? randomUUID() : adminId,
+            }),
+          ).rejects.toMatchObject({ status: 401 });
+        },
+      );
+      it.each([
+        { page: 0 },
+        { page: 1.5 },
+        { page: 1_000_001 },
+        { limit: 0 },
+        { limit: 101 },
+        { limit: NaN },
+      ])('rejects invalid direct-service pagination %j', async (query) => {
+        await expect(
+          organizations().findAllForActor({ actorId: adminId, ...query }),
+        ).rejects.toMatchObject({ status: 422 });
+      });
+      it('forwards actor and pagination from the controller', async () => {
+        const query = Object.assign(new ListOrganizationsQueryDto(), {
+          page: 2,
+          limit: 1,
+        });
+        const result = await new OrganizationsController(
+          organizations(),
+        ).findAll(adminId, query);
+        expect(result).toEqual({ items: [], total: 1, page: 2, limit: 1 });
+      });
+
+      it.each(['owner', 'member'])(
         'allows an active %s and returns only organization details',
         async (actor) => {
           const result = await organizations().findOneForActor(
@@ -396,6 +492,9 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         await expect(
           organizations().findOneForActor(adminId, organizationId),
         ).rejects.toMatchObject({ status: 403 });
+        await expect(
+          organizations().findAllForActor({ actorId: adminId }),
+        ).resolves.toMatchObject({ items: [], total: 0 });
       });
       it('does not let owner bypass suspended membership', async () => {
         await db.organizationMember.updateMany({
@@ -405,6 +504,9 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         await expect(
           organizations().findOneForActor(regularId, organizationId),
         ).rejects.toMatchObject({ status: 403 });
+        await expect(
+          organizations().findAllForActor({ actorId: regularId }),
+        ).resolves.toMatchObject({ items: [], total: 0 });
       });
       it('denies missing organizations with the same 403 as inaccessible ones', async () => {
         await expect(
@@ -426,6 +528,9 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         await expect(
           organizations().findOneForActor(adminId, organizationId),
         ).rejects.toMatchObject({ status: 403 });
+        await expect(
+          organizations().findAllForActor({ actorId: adminId }),
+        ).resolves.toMatchObject({ items: [], total: 0 });
       });
       it('fails closed for empty permission requirements', async () => {
         expect(
