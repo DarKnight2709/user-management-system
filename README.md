@@ -413,6 +413,25 @@ bypass. Missing/deleted actors receive 401, malformed organization UUIDs 400,
 and inaccessible/nonexistent organizations 403. Writes explicitly allowlist name;
 the response contains the same detail fields as organization reads.
 
+`GET /organizations/:organizationId/members?page=1&limit=20` is an active-member
+directory. It requires ORGANIZATION_MEMBER read through the global guard and
+OrganizationMembersService; organization read alone is insufficient. Active
+owners pass through ownerId; platform admins have no membership bypass.
+Authorization, page, and count share one serializable transaction snapshot.
+Only ACTIVE, nondeleted memberships of nondeleted users in the target organization
+are included; invited, suspended, and soft-deleted memberships are excluded.
+Data is `{ items, total, page, limit }`. Each item contains membership id/status/
+createdAt, isOwner, user {id, username, firstName, lastName}, and active local
+role labels {id, name}. Member-read access includes these role labels, without
+granting access to role permission details. System, cross-organization, deleted,
+revoked, and legacy OWNER role assignments are excluded; owner status comes
+solely from ownerId. Email, birth date, password hashes, avatar keys, and tokens
+are not selected. Sort by membership createdAt ascending then id ascending.
+Defaults/bounds match organization listing (page 1, limit 20, maximum page
+1,000,000 and limit 100; invalid queries return 422). Missing/deleted actors
+receive 401, malformed UUIDs 400, inaccessible/nonexistent organizations 403.
+Suspended-member administration and invitation listing are separate future work.
+
 The admin logs in through `POST /auth/login` normally. `GET /users` requires
 the platform permission `USER:read`; authenticated users without it receive
 HTTP 403. The global `PermissionsGuard` runs after authentication and
