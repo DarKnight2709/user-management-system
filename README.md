@@ -372,6 +372,34 @@ soft-deleted organizations), and missing/revoked default permissions receive 503
 without partial provisioning. Seed the catalog first. Existing global JWT and
 IP throttling guards apply; no existing organization membership is required.
 
+`GET /organizations/:organizationId` returns organization details (id, name,
+slug, ownerId, isActive, createdAt, updatedAt) without member or role records.
+It requires active membership in an active, undeleted organization and an active
+user. Owners pass through ownerId; other members require ORGANIZATION read
+through active, same-organization non-system roles and permission links.
+Platform roles provide no bypass. The global guard and the service share
+PermissionsService.hasOrganizationPermissions; the service rechecks actor state
+and permission in the same transaction snapshot as the read. Missing/deleted
+actors receive 401, malformed organization UUIDs receive 400, and inaccessible
+or nonexistent organizations receive the same 403.
+
+`GET /organizations?page=1&limit=20` lists only organizations the authenticated
+caller can read under the same owner/member permission rules. Active users
+without accessible organizations receive an empty page, including platform
+admins without organization membership. Missing/deleted actors receive 401.
+The response envelope's data is `{ items, total, page, limit }`; items contain
+the same organization detail fields described above. Defaults are page 1 and
+limit 20; integer bounds are page 1–1,000,000 and limit 1–100 (422 otherwise).
+Access filtering happens before counting and pagination in one transaction
+snapshot. Ordering is createdAt descending, then id ascending. Membership,
+role/link/permission revocations and cross-organization assignments are excluded.
+The list route has no organizationId parameter; its service applies access
+filtering instead of using the single-organization permission decorator.
+Authorization resolves the caller's active memberships and relevant grants in
+bulk before querying the page. Its work grows with the caller's memberships;
+large-membership optimization remains future work. Offset pages can shift
+between requests as organizations or access change.
+
 The admin logs in through `POST /auth/login` normally. `GET /users` requires
 the platform permission `USER:read`; authenticated users without it receive
 HTTP 403. The global `PermissionsGuard` runs after authentication and

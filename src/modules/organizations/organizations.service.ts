@@ -1,11 +1,25 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { CreateOrganizationDto } from './dto/create-organization.dto.js';
+import { PermissionsService } from '@/common/services/permissions.service.js';
+import type { Prisma } from '@/generated/prisma/client.js';
+
+const organizationDetails = {
+  id: true,
+  name: true,
+  slug: true,
+  ownerId: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.OrganizationSelect;
 
 const adminPermissions = [
   { resource: 'ORGANIZATION', action: 'read' },
@@ -18,7 +32,77 @@ const adminPermissions = [
 
 @Injectable()
 export class OrganizationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly permissionsService: PermissionsService,
+  ) {}
+
+  async findAllForActor({
+    actorId,
+    page = 1,
+    limit = 20,
+  }: {
+    actorId: string;
+    page?: number;
+    limit?: number;
+  }) {
+    if (
+      !Number.isInteger(page) ||
+      page < 1 ||
+      page > 1_000_000 ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    ) {
+      throw new UnprocessableEntityException('Invalid pagination');
+    }
+    return this.prisma.serializableTransaction(async (manager) => {
+      const actor = await manager.user.findUnique({
+        where: { id: actorId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!actor) throw new UnauthorizedException('Authentication required');
+      const ids = await this.permissionsService.findAuthorizedOrganizationIds(
+        actorId,
+        [{ resource: 'ORGANIZATION', action: 'read' }],
+        manager,
+      );
+      const where = { id: { in: ids }, deletedAt: null, isActive: true };
+      const [items, total] = await Promise.all([
+        manager.organization.findMany({
+          where,
+          select: organizationDetails,
+          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        manager.organization.count({ where }),
+      ]);
+      return { items, total, page, limit };
+    });
+  }
+
+  async findOneForActor(actorId: string, organizationId: string) {
+    return this.prisma.serializableTransaction(async (manager) => {
+      const actor = await manager.user.findUnique({
+        where: { id: actorId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!actor) throw new UnauthorizedException('Authentication required');
+      const allowed = await this.permissionsService.hasOrganizationPermissions(
+        actorId,
+        organizationId,
+        [{ resource: 'ORGANIZATION', action: 'read' }],
+        manager,
+      );
+      // Missing and inaccessible organizations have the same response.
+      if (!allowed) throw new ForbiddenException('Organization access denied');
+      return manager.organization.findUniqueOrThrow({
+        where: { id: organizationId, deletedAt: null, isActive: true },
+        select: organizationDetails,
+      });
+    });
+  }
 
   async create(actorId: string, dto: CreateOrganizationDto) {
     return this.prisma.serializableTransaction(async (manager) => {

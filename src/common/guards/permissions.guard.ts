@@ -16,14 +16,14 @@ import {
   ORGANIZATION_PERMISSIONS_KEY,
   type OrganizationPermissionRequirement,
 } from '../decorators/require-organization-permissions.decorator.js';
-import { PrismaService } from '@/core/database/prisma.service.js';
+
 import { PermissionsService } from '@/common/services/permissions.service.js';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly prisma: PrismaService,
+
     private readonly permissionsService: PermissionsService,
   ) {}
 
@@ -97,66 +97,15 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    const membership = await this.prisma.organizationMember.findFirst({
-      where: {
-        userId,
-        organizationId,
-        status: 'ACTIVE',
-        deletedAt: null,
-        user: { deletedAt: null },
-        organization: { deletedAt: null, isActive: true },
-      },
-      select: {
-        organization: { select: { ownerId: true } },
-        memberRoles: {
-          where: {
-            deletedAt: null,
-            role: {
-              organizationId,
-              isSystem: false,
-              deletedAt: null,
-              name: { not: 'OWNER' },
-            },
-          },
-          select: {
-            role: {
-              select: {
-                rolePermissions: {
-                  where: {
-                    deletedAt: null,
-                    permission: { deletedAt: null, OR: required },
-                  },
-                  select: {
-                    permission: { select: { resource: true, action: true } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!membership) {
-      throw new ForbiddenException('Active organization membership required');
-    }
-
-    if (membership.organization.ownerId === userId) {
-      // Active owners have full organization authority, but no platform bypass.
-      return;
-    }
-
-    const granted = membership.memberRoles.flatMap(({ role }) =>
-      role.rolePermissions.map(({ permission }) => permission),
+    const allowed = await this.permissionsService.hasOrganizationPermissions(
+      userId,
+      organizationId,
+      required,
     );
-
-    const allowed = required.every((needed) =>
-      granted.some(
-        (permission) =>
-          permission.resource === needed.resource &&
-          permission.action === needed.action,
-      ),
-    );
-    if (!allowed)
-      throw new ForbiddenException('Insufficient organization permissions');
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Insufficient organization permissions or membership',
+      );
+    }
   }
 }
