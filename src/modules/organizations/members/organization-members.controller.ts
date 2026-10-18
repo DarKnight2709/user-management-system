@@ -1,4 +1,12 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { RequireOrganizationPermissions } from '@/common/decorators/require-organization-permissions.decorator.js';
@@ -10,6 +18,21 @@ import { OrganizationMembersService } from './organization-members.service.js';
 @Controller('organizations/:organizationId/members')
 export class OrganizationMembersController {
   constructor(private readonly members: OrganizationMembersService) {}
+
+  @Delete(':memberId')
+  @HttpCode(204)
+  @RequireOrganizationPermissions({
+    resource: 'ORGANIZATION_MEMBER',
+    action: 'remove',
+  })
+  @ApiOperation({ summary: 'Remove an organization membership' })
+  async remove(
+    @CurrentUser('id') actorId: string,
+    @Param('organizationId', ParseUUIDPipe) organizationId: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+  ): Promise<void> {
+    await this.members.removeForActor(actorId, organizationId, memberId);
+  }
 
   @Get()
   @RequireOrganizationPermissions({

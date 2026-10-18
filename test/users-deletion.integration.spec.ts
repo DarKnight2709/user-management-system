@@ -33,9 +33,9 @@ import { PermissionsGuard } from '../src/common/guards/permissions.guard.js';
 import { Reflector } from '@nestjs/core';
 import type { ExecutionContext } from '@nestjs/common';
 import { ListOrganizationsQueryDto } from '../src/modules/organizations/dto/list-organizations-query.dto.js';
-import { OrganizationMembersService } from '../src/modules/organizations/organization-members.service.js';
-import { OrganizationMembersController } from '../src/modules/organizations/organization-members.controller.js';
-import { ListOrganizationMembersQueryDto } from '../src/modules/organizations/dto/list-organization-members-query.dto.js';
+import { OrganizationMembersService } from '../src/modules/organizations/members/organization-members.service.js';
+import { OrganizationMembersController } from '../src/modules/organizations/members/organization-members.controller.js';
+import { ListOrganizationMembersQueryDto } from '../src/modules/organizations/members/dto/list-organization-members-query.dto.js';
 
 // Explicit opt-in; all fixtures live in a disposable schema, never application tables.
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
@@ -305,6 +305,237 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         });
         membershipId = member.id;
       });
+      describe('Member removal', () => {
+        const remove = (actorId = regularId, targetId = membershipId) =>
+          members().removeForActor(actorId, organizationId, targetId);
+
+        it('lets the owner remove a member, retains history and ends organization access', async () => {
+          const token = await refreshToken(adminId);
+          await remove();
+          expect(
+            (
+              await db.organizationMember.findUniqueOrThrow({
+                where: { id: membershipId },
+              })
+            ).deletedAt,
+          ).toBeInstanceOf(Date);
+          expect(
+            await db.memberRole.count({
+              where: { organizationMemberId: membershipId },
+            }),
+          ).toBe(1);
+          expect(
+            await db.user.findUniqueOrThrow({ where: { id: adminId } }),
+          ).toMatchObject({ deletedAt: null });
+          expect(
+            await db.refreshToken.findUniqueOrThrow({
+              where: { id: token.id },
+            }),
+          ).toMatchObject({ revokedAt: null });
+          await expect(list(adminId)).rejects.toMatchObject({ status: 403 });
+          expect(await list()).toMatchObject({ total: 1 });
+        });
+
+        it('denies ordinary members and platform administrators without organization permission', async () => {
+          for (const actor of [adminId, superId]) {
+            await expect(remove(actor)).rejects.toMatchObject({ status: 403 });
+          }
+        });
+
+        it('rejects deleted actors', async () => {
+          await db.user.update({
+            where: { id: regularId },
+            data: { deletedAt: new Date() },
+          });
+          await expect(remove()).rejects.toMatchObject({ status: 401 });
+        });
+
+        it('does not remove the owner', async () => {
+          const owner = await db.organizationMember.findUniqueOrThrow({
+            where: {
+              organizationId_userId: { organizationId, userId: regularId },
+            },
+          });
+          await expect(remove(regularId, owner.id)).rejects.toMatchObject({
+            status: 409,
+          });
+        });
+
+        it('does not expose or remove another organization membership', async () => {
+          const other = await organizations().create(regularId, {
+            name: 'Other',
+            slug: `other-${randomUUID()}`,
+          });
+          const target = await db.organizationMember.findUniqueOrThrow({
+            where: {
+              organizationId_userId: {
+                organizationId: other.id,
+                userId: regularId,
+              },
+            },
+          });
+          await expect(remove(regularId, target.id)).rejects.toMatchObject({
+            status: 404,
+          });
+          await expect(remove(regularId, randomUUID())).rejects.toMatchObject({
+            status: 404,
+          });
+        });
+
+        it.each(['ADMIN', 'CUSTOM'])(
+          'applies the owner/admin hierarchy to a %s role holder',
+          async (name) => {
+            const adminRole = await db.role.findFirstOrThrow({
+              where: { organizationId, name: 'ADMIN' },
+            });
+            await db.memberRole.create({
+              data: {
+                organizationMemberId: membershipId,
+                roleId: adminRole.id,
+              },
+            });
+            const targetUser = await createUser();
+            const targetRole =
+              name === 'ADMIN'
+                ? adminRole
+                : await db.role.create({ data: { organizationId, name } });
+            const target = await db.organizationMember.create({
+              data: {
+                organizationId,
+                userId: targetUser.id,
+                memberRoles: { create: { roleId: targetRole.id } },
+              },
+            });
+            if (name === 'ADMIN') {
+              await expect(remove(adminId, target.id)).rejects.toMatchObject({
+                status: 403,
+              });
+            } else {
+              await expect(remove(adminId, target.id)).resolves.toBeUndefined();
+            }
+            await expect(remove(regularId, target.id)).resolves.toBeUndefined();
+          },
+        );
+
+        it('requires remove permission and limits custom roles to ordinary members', async () => {
+          const permission = await db.permission.findUniqueOrThrow({
+            where: {
+              action_resource: {
+                action: 'remove',
+                resource: 'ORGANIZATION_MEMBER',
+              },
+            },
+          });
+          const customRole = await db.role.create({
+            data: { organizationId, name: 'MODERATOR' },
+          });
+          await db.memberRole.create({
+            data: { organizationMemberId: membershipId, roleId: customRole.id },
+          });
+          const ordinary = await createUser();
+          const ordinaryMember = await db.organizationMember.create({
+            data: {
+              organizationId,
+              userId: ordinary.id,
+              memberRoles: { create: { roleId } },
+            },
+          });
+          await expect(
+            remove(adminId, ordinaryMember.id),
+          ).rejects.toMatchObject({ status: 403 });
+          await db.rolePermission.create({
+            data: { roleId: customRole.id, permissionId: permission.id },
+          });
+          const peer = await createUser();
+          const peerMember = await db.organizationMember.create({
+            data: {
+              organizationId,
+              userId: peer.id,
+              memberRoles: { create: { roleId: customRole.id } },
+            },
+          });
+          await expect(remove(adminId, peerMember.id)).rejects.toMatchObject({
+            status: 403,
+          });
+          await expect(remove(adminId, membershipId)).rejects.toMatchObject({
+            status: 403,
+          });
+          await expect(
+            remove(adminId, ordinaryMember.id),
+          ).resolves.toBeUndefined();
+        });
+
+        it('uses the highest active role and ignores revoked ADMIN assignments', async () => {
+          const adminRole = await db.role.findFirstOrThrow({
+            where: { organizationId, name: 'ADMIN' },
+          });
+          const customRole = await db.role.create({
+            data: { organizationId, name: 'HELPER' },
+          });
+          await db.memberRole.createMany({
+            data: [
+              { organizationMemberId: membershipId, roleId: adminRole.id },
+              { organizationMemberId: membershipId, roleId: customRole.id },
+            ],
+          });
+          const peer = await createUser();
+          const peerMember = await db.organizationMember.create({
+            data: {
+              organizationId,
+              userId: peer.id,
+              memberRoles: { create: [{ roleId }, { roleId: adminRole.id }] },
+            },
+          });
+          await expect(remove(adminId, peerMember.id)).rejects.toMatchObject({
+            status: 403,
+          });
+          await db.memberRole.updateMany({
+            where: {
+              organizationMemberId: peerMember.id,
+              roleId: adminRole.id,
+            },
+            data: { deletedAt: new Date() },
+          });
+          await expect(remove(adminId, peerMember.id)).resolves.toBeUndefined();
+        });
+
+        it('lets an organization admin remove an ordinary member', async () => {
+          const adminRole = await db.role.findFirstOrThrow({
+            where: { organizationId, name: 'ADMIN' },
+          });
+          await db.memberRole.create({
+            data: { organizationMemberId: membershipId, roleId: adminRole.id },
+          });
+          const targetUser = await createUser();
+          const target = await db.organizationMember.create({
+            data: {
+              organizationId,
+              userId: targetUser.id,
+              memberRoles: { create: { roleId } },
+            },
+          });
+          await expect(remove(adminId, target.id)).resolves.toBeUndefined();
+          await expect(remove(adminId, membershipId)).rejects.toMatchObject({
+            status: 403,
+          });
+        });
+
+        it('makes authorized repeated and simultaneous removal idempotent', async () => {
+          await Promise.all([remove(), remove()]);
+          const first = await db.organizationMember.findUniqueOrThrow({
+            where: { id: membershipId },
+          });
+          await remove();
+          expect(
+            (
+              await db.organizationMember.findUniqueOrThrow({
+                where: { id: membershipId },
+              })
+            ).deletedAt,
+          ).toEqual(first.deletedAt);
+        });
+      });
+
       it.each(['owner', 'member'])(
         'allows %s and exposes only directory fields',
         async (actor) => {
