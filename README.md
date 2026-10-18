@@ -495,6 +495,26 @@ Organization creation and initial ADMIN/MEMBER provisioning are implemented.
 Other organization endpoints, assignment validation, custom-role management,
 and safe ownership-transfer rules remain to be implemented.
 
+### Organization invitations
+
+Invitations now use one database table, with BullMQ email jobs and explicit
+resend/copy-link recovery. Create/list/resend/copy/revoke require organization
+invite permission; acceptance requires the invitation capability and matching
+authenticated account email. Membership is always provisioned with MEMBER, never
+an arbitrary client-supplied role. The email queue and worker always start;
+frontend URL, invitation secret, Redis host, SMTP host and sender configuration
+are required at startup. Resend/copy-link recovery remains available if sending fails.
+
+See [invitation setup, API, failure semantics, and verification](src/modules/organizations/invitations/README.md).
+The read-only Bull Board dashboard is available at `/queues` only when validated
+`NODE_ENV=development`. Production/test register no dashboard UI/API/assets (404).
+Queue processing and email workers remain enabled in every environment. This
+local development dashboard has no separate login; keep development instances
+private. Set `NODE_ENV=production` explicitly in deployments (the default is development).
+There is no outbox: a crash after DB commit but before enqueue requires manual
+resend/copy. SMTP acceptance is not proof of inbox delivery, and exactly-once
+email delivery is not guaranteed. Frontend clipboard/accept UI is separate work.
+
 ### 6. Start the Application
 
 ```bash

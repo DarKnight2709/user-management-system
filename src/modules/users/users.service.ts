@@ -1,3 +1,4 @@
+import { assertValidPagination } from '@/common/utils/pagination.util.js';
 import {
   BadRequestException,
   ConflictException,
@@ -5,7 +6,6 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
-  UnprocessableEntityException,
 } from '@nestjs/common';
 import { User, type PaginatedUsers } from './interfaces/user.interface.js';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto.js';
@@ -48,16 +48,7 @@ export class UsersService {
     limit?: number;
   }): Promise<PaginatedUsers> {
     // Keep pagination bounded even when called without the controller validation pipe.
-    if (
-      !Number.isInteger(page) ||
-      page < 1 ||
-      page > 1_000_000 ||
-      !Number.isInteger(limit) ||
-      limit < 1 ||
-      limit > 100
-    ) {
-      throw new UnprocessableEntityException('Invalid pagination');
-    }
+    assertValidPagination(page, limit);
     const { users, total } = await this.prismaService.serializableTransaction(
       async (manager) => {
         const actor = await manager.user.findUnique({
