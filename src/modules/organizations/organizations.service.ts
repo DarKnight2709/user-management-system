@@ -1,10 +1,10 @@
+import { assertValidPagination } from '@/common/utils/pagination.util.js';
 import {
   ConflictException,
   ForbiddenException,
   Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
-  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { CreateOrganizationDto } from './dto/create-organization.dto.js';
@@ -74,16 +74,7 @@ export class OrganizationsService {
     page?: number;
     limit?: number;
   }) {
-    if (
-      !Number.isInteger(page) ||
-      page < 1 ||
-      page > 1_000_000 ||
-      !Number.isInteger(limit) ||
-      limit < 1 ||
-      limit > 100
-    ) {
-      throw new UnprocessableEntityException('Invalid pagination');
-    }
+    assertValidPagination(page, limit);
     return this.prisma.serializableTransaction(async (manager) => {
       const actor = await manager.user.findUnique({
         where: { id: actorId, deletedAt: null },

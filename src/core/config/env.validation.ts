@@ -1,3 +1,4 @@
+/* oxlint-disable unicorn/no-thenable -- Joi conditional schemas require a non-callable `then` property. */
 import Joi from 'joi';
 
 const jwtSecretSchema = Joi.string()
@@ -35,4 +36,32 @@ export const envValidationSchema = Joi.object({
   S3_FORCE_PATH_STYLE: Joi.boolean().default(true),
   S3_PUBLIC_URL: Joi.string().uri().required(),
   LOG_DATABASE_QUERIES: Joi.boolean().default(false),
-});
+  FRONTEND_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .empty('')
+    .required(),
+  INVITATION_TOKEN_SECRET: Joi.string()
+    .min(64)
+    .pattern(/\s/, { invert: true })
+    .invalid(
+      Joi.ref('JWT_ACCESS_TOKEN_SECRET'),
+      Joi.ref('JWT_REFRESH_TOKEN_SECRET'),
+    )
+    .empty('')
+    .required(),
+  REDIS_HOST: Joi.string().empty('').required(),
+  REDIS_PORT: Joi.number().port().empty('').default(6379),
+  REDIS_PASSWORD: Joi.string().empty(''),
+  REDIS_QUEUE_PREFIX: Joi.string()
+    .pattern(/^[a-zA-Z0-9_-]+$/)
+    .empty('')
+    .default('ums'),
+  SMTP_HOST: Joi.string().empty('').required(),
+  SMTP_PORT: Joi.number().port().empty('').default(587),
+  SMTP_SECURE: Joi.boolean().empty('').default(false),
+  SMTP_FROM: Joi.string().email().empty('').required(),
+  SMTP_USER: Joi.string().empty(''),
+  SMTP_PASSWORD: Joi.string()
+    .empty('')
+    .when('SMTP_USER', { is: Joi.exist(), then: Joi.required() }),
+}).with('SMTP_PASSWORD', 'SMTP_USER');

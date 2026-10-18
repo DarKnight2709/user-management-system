@@ -20,11 +20,24 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
+import { BullModule } from '@nestjs/bullmq';
+import { ConfigService } from '@nestjs/config';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       validationSchema: envValidationSchema,
+    }),
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        prefix: config.get<string>('REDIS_QUEUE_PREFIX'),
+        connection: {
+          host: config.get<string>('REDIS_HOST'),
+          port: config.get<number>('REDIS_PORT'),
+          password: config.get<string>('REDIS_PASSWORD'),
+        },
+      }),
     }),
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),

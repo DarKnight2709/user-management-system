@@ -1,5 +1,20 @@
 # Local development only. Production requires separate deployment configuration.
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
+    ports:
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
   postgres:
     image: postgres:17
     container_name: user_system-postgres
@@ -54,5 +69,6 @@ services:
         mc anonymous set-json /policies/avatars-policy.json storage/avatars
         echo "Avatar bucket initialization completed."
 volumes:
+  redis_data:
   postgres_data:
   minio_data:
