@@ -20,6 +20,7 @@ import {
 import { InvitationsService } from '../services/invitations.service.js';
 import { ListOrganizationsQueryDto } from '../../dto/list-organizations-query.dto.js';
 import { UserRateLimit } from '@/common/decorators/user-rate-limit.decorator.js';
+import { IpRateLimit } from '@/common/decorators/ip-rate-limit.decorator.js';
 
 @ApiTags('Organization Invitations')
 @ApiBearerAuth()
@@ -46,6 +47,8 @@ export class InvitationsController {
   }
 
   @Get()
+  @UserRateLimit(60)
+  @IpRateLimit(120)
   @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'List invitation metadata without tokens or links' })
   list(
