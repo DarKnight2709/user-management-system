@@ -1,7 +1,9 @@
 import { assertValidPagination } from '@/common/utils/pagination.util.js';
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
@@ -13,6 +15,98 @@ export class OrganizationMembersService {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
   ) {}
+
+  async removeForActor(
+    actorId: string,
+    organizationId: string,
+    memberId: string,
+  ): Promise<void> {
+    await this.prisma.serializableTransaction(async (manager) => {
+      const actor = await manager.user.findUnique({
+        where: { id: actorId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!actor) throw new UnauthorizedException('Authentication required');
+
+      const allowed = await this.permissions.hasOrganizationPermissions(
+        actorId,
+        organizationId,
+        [{ resource: 'ORGANIZATION_MEMBER', action: 'remove' }],
+        manager,
+      );
+      if (!allowed) throw new ForbiddenException('Organization access denied');
+
+      const organization = await manager.organization.findUniqueOrThrow({
+        where: { id: organizationId, deletedAt: null, isActive: true },
+        select: { ownerId: true },
+      });
+      const memberRoles = {
+        where: {
+          deletedAt: null,
+          role: {
+            organizationId,
+            isSystem: false,
+            deletedAt: null,
+            name: { not: 'OWNER' },
+          },
+        },
+        select: { role: { select: { name: true } } },
+      } as const;
+      const member = await manager.organizationMember.findFirst({
+        where: { id: memberId, organizationId },
+        select: {
+          id: true,
+          userId: true,
+          deletedAt: true,
+          memberRoles,
+        },
+      });
+      if (!member) throw new NotFoundException('Organization member not found');
+      if (member.userId === organization.ownerId) {
+        throw new ConflictException(
+          'Transfer ownership before removing the owner',
+        );
+      }
+
+      if (actorId !== organization.ownerId) {
+        const actorMembership = await manager.organizationMember.findFirst({
+          where: {
+            organizationId,
+            userId: actorId,
+            status: 'ACTIVE',
+            deletedAt: null,
+          },
+          select: { memberRoles },
+        });
+        // Permission grants the operation; hierarchy limits its targets.
+        if (
+          !actorMembership ||
+          this.memberLevel(actorMembership.memberRoles) <=
+            this.memberLevel(member.memberRoles)
+        ) {
+          throw new ForbiddenException(
+            'Only members with a higher role level can remove this member',
+          );
+        }
+      }
+      if (member.deletedAt) return;
+
+      await manager.organizationMember.update({
+        where: { id: member.id, organizationId },
+        data: { deletedAt: new Date() },
+      });
+    });
+  }
+
+  private memberLevel(assignments: { role: { name: string } }[]): number {
+    // No role or MEMBER = 0, custom roles = 1, ADMIN = 2. Ownership is checked separately.
+    return Math.max(
+      0,
+      ...assignments.map(({ role }) =>
+        role.name === 'ADMIN' ? 2 : role.name === 'MEMBER' ? 0 : 1,
+      ),
+    );
+  }
 
   async findAllForActor({
     actorId,

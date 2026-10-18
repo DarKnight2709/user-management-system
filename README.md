@@ -482,7 +482,7 @@ remaining authorization work is summarized in Project Status and Remaining Work.
 Organization ownership is stored separately in `Organization.ownerId`.
 Platform roles use `UserPlatformRole`; organization roles use `MemberRole`.
 The same `PermissionsGuard` handles organization scope for future routes marked
-with `@RequireOrganizationPermissions({ resource: 'MEMBER', action: 'invite' })`.
+with `@RequireOrganizationPermissions({ resource: 'ORGANIZATION_MEMBER', action: 'invite' })`.
 Such routes must include a UUID `:organizationId` parameter. The guard requires
 an active membership, an active organization, and all listed permissions from
 active roles in that organization. System administrators have no automatic bypass. If both scope decorators are present, both requirements must pass.
@@ -491,9 +491,30 @@ membership and organization checks. `ownerId` is the sole source of ownership;
 an `OWNER` role assignment does not confer ownership or supply permissions to
 other members. No OWNER role is needed. Business rules and platform permissions
 still apply independently.
-Organization creation and initial ADMIN/MEMBER provisioning are implemented.
-Other organization endpoints, assignment validation, custom-role management,
-and safe ownership-transfer rules remain to be implemented.
+Organization creation, reading/listing, name updates, member listing/removal,
+invitations, and initial ADMIN/MEMBER provisioning are implemented. Organization
+deletion, assignment validation, custom-role management, and safe ownership
+transfer remain to be implemented.
+
+### Organization member removal
+
+`DELETE /organizations/:organizationId/members/:memberId` requires organization
+ORGANIZATION_MEMBER remove permission and returns 204. The target is a membership
+ID from the member directory, not a user ID. The owner can remove any non-owner;
+removal also enforces OWNER > ADMIN > custom roles > MEMBER. ADMIN can remove
+custom-role holders and ordinary members; custom-role holders with remove permission
+can remove ordinary members. Non-owners cannot remove peers, higher levels, or
+themselves. The highest active local role determines level; roleless members use
+the MEMBER level. Role hierarchy does not grant permissions by itself.
+The owner cannot be removed; ownership transfer is separate work.
+
+Removal sets membership deletedAt, retains role assignments as history, and ends
+organization access without deleting the user or revoking their account sessions.
+Authorized repeated removal is idempotent. Authorization, organization scoping,
+owner protection, role checks and removal share a serializable transaction with
+bounded retries. Concurrent repeated removal is verified in a disposable local
+PostgreSQL schema. Future role/ownership mutations must coordinate these rules.
+Restoration, leaving an organization and audit recording remain separate work.
 
 ### Organization invitations
 
