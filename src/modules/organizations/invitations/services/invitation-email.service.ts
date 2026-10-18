@@ -32,6 +32,7 @@ export class InvitationEmailService {
           attempts: 3,
           backoff: { type: 'exponential', delay: 1_000 },
           removeOnComplete: true,
+          removeOnFail: { age: 604_800, count: 1_000 },
         },
       );
       await Promise.race([
