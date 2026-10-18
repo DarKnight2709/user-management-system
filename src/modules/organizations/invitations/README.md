@@ -73,6 +73,8 @@ SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_FROM, and optional SMTP_USER/SMTP_PASSWO
 in private `.env`. User/password must be configured together. Use a trusted SMTP
 server; authenticated production SMTP must use TLS. SMTP_SECURE=true is for
 implicit TLS (typically 465); false permits STARTTLS (typically 587).
+SMTP connection timeout is 20 seconds, including DNS resolution. Greeting timeout
+is 5 seconds and socket inactivity timeout is 10 seconds.
 
 Local Redis setup:
 
@@ -115,6 +117,14 @@ private. Deployments must explicitly set `NODE_ENV=production`.
   signal/drain behavior still requires deployment verification.
 - Jobs contain only invitation ID and delivery version. IDs use
   `<invitationId>-<version>` (no colon). Three attempts use exponential backoff.
+  Completed jobs are removed immediately; failed jobs are retained for up to seven
+  days or 1,000 jobs, with cleanup performed as subsequent jobs fail. This policy
+  applies to newly enqueued jobs, not existing retained jobs.
+- Delivery warnings identify the invitation ID, delivery version, failure stage
+  (database read, link configuration, SMTP send, or recording delivery state), and
+  allowlisted error codes. SMTP response numbers may be included, but never raw
+  error messages, stacks, SMTP responses, credentials, tokens, or recipient addresses.
+  Worker failure logs include the attempt number and configured attempt limit.
 - Worker rechecks pending/unexpired invitation, current version, active
   organization, and SENT state before delivery. It records SENT only after SMTP
   accepts. Safe errors contain no email/token/SMTP credentials.

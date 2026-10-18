@@ -3,6 +3,7 @@ import { PrismaService } from '@/core/database/prisma.service.js';
 import { InvitationLinksService } from './invitation-links.service.js';
 import { EmailService } from './email.service.js';
 import type { SendInvitationJobData } from '../interfaces/send-invitation-job.interface.js';
+import { safeEmailErrorDetails } from '../utils/email-error.util.js';
 
 @Injectable()
 export class InvitationDeliveryService {
@@ -17,6 +18,7 @@ export class InvitationDeliveryService {
   async deliver(job: SendInvitationJobData): Promise<void> {
     this.validateJob(job);
     const { invitationId, version } = job;
+    let stage = 'database-read';
     try {
       const invitation = await this.prisma.organizationInvitation.findUnique({
         where: { id: invitationId },
@@ -37,23 +39,30 @@ export class InvitationDeliveryService {
       ) {
         return;
       }
+      stage = 'link-configuration';
       if (
         this.links.hash(this.links.token(invitation.id)) !==
         invitation.tokenHash
       ) {
         throw new Error('Invitation token configuration changed');
       }
+      const inviteLink = this.links.link(invitation.id);
+      stage = 'smtp-send';
       await this.email.sendInvitationEmail(
         invitation.email,
         invitation.organization.name,
-        this.links.link(invitation.id),
+        inviteLink,
         invitation.expiresAt,
       );
+      stage = 'database-record-sent';
       await this.prisma.organizationInvitation.updateMany({
         where: { id: invitation.id, deliveryVersion: version },
         data: { deliveryStatus: 'SENT', sentAt: new Date() },
       });
-    } catch {
+    } catch (error) {
+      this.logger.warn(
+        `Invitation ${invitationId} version=${version} stage=${stage} failed ${safeEmailErrorDetails(error)}`,
+      );
       await this.markFailed(job);
       throw new Error('Invitation email delivery failed');
     }
@@ -80,8 +89,10 @@ export class InvitationDeliveryService {
         },
         data: { deliveryStatus: 'FAILED' },
       });
-    } catch {
-      this.logger.warn('Invitation delivery state could not be recorded');
+    } catch (error) {
+      this.logger.warn(
+        `Invitation ${invitationId} version=${version} stage=database-record-failed failed ${safeEmailErrorDetails(error)}`,
+      );
     }
   }
 }

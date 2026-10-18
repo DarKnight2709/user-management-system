@@ -21,6 +21,8 @@ import { envValidationSchema } from '@/core/config/env.validation.js';
 import { InvitationsService } from '../services/invitations.service.js';
 import type { PermissionsService } from '@/common/services/permissions.service.js';
 import type { Prisma } from '@/generated/prisma/client.js';
+import { Logger } from '@nestjs/common';
+import { safeEmailErrorDetails } from '../utils/email-error.util.js';
 
 const config = new ConfigService({
   INVITATION_TOKEN_SECRET: 'test-invitation-secret-'.repeat(4),
@@ -28,6 +30,27 @@ const config = new ConfigService({
   SMTP_FROM: 'sender@example.com',
 });
 const links = new InvitationLinksService(config);
+
+describe('Safe email error diagnostics', () => {
+  it('keeps allowlisted codes without raw SMTP responses or credentials', () => {
+    expect(
+      safeEmailErrorDetails({
+        code: 'EAUTH',
+        responseCode: 535,
+        message: 'private credentials',
+        response: 'private SMTP response',
+      }),
+    ).toBe('code=EAUTH responseCode=535');
+  });
+
+  it.each([
+    null,
+    'private error',
+    { code: 'private token', responseCode: 'private response' },
+  ])('does not expose unknown error properties', (error) => {
+    expect(safeEmailErrorDetails(error)).toBe('code=UNKNOWN');
+  });
+});
 
 describe('Invitation acceptance token verification', () => {
   function setup(currentLinks = links) {
@@ -238,6 +261,28 @@ describe('Invitation email delivery', () => {
     await service.deliver({ invitationId: 'invitation', version: 1 });
     expect(sendMail).toHaveBeenCalledTimes(2);
   });
+  it('identifies SMTP failures without logging sensitive error details', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    sendMail.mockRejectedValueOnce(
+      Object.assign(new Error('private credentials'), {
+        code: 'EDNS',
+        response: 'private SMTP response',
+      }),
+    );
+    try {
+      await expect(
+        service.deliver({ invitationId: 'invitation', version: 1 }),
+      ).rejects.toThrow('Invitation email delivery failed');
+      expect(warn).toHaveBeenCalledWith(
+        'Invitation invitation version=1 stage=smtp-send failed code=EDNS',
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+    } finally {
+      warn.mockRestore();
+    }
+  });
   it('does not expose raw database errors when lookup and failure recording both fail', async () => {
     findUnique.mockRejectedValueOnce(
       new Error('sensitive database lookup failure'),
@@ -290,7 +335,11 @@ describe('Invitation email delivery', () => {
     expect(add).toHaveBeenCalledWith(
       'send-invitation',
       { invitationId: 'invitation', version: 2 },
-      expect.objectContaining({ jobId: 'invitation-2', attempts: 3 }),
+      expect.objectContaining({
+        jobId: 'invitation-2',
+        attempts: 3,
+        removeOnFail: { age: 604_800, count: 1_000 },
+      }),
     );
     expect(updateMany).toHaveBeenCalledWith(
       expect.objectContaining({

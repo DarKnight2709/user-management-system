@@ -5,6 +5,7 @@ import { EmailJobNames } from '@/common/enums/email-job-names.enum.js';
 import { INVITATION_EMAIL_QUEUE } from '../constants/email-queue.constant.js';
 import type { SendInvitationJobData } from '../interfaces/send-invitation-job.interface.js';
 import { InvitationDeliveryService } from '../services/invitation-delivery.service.js';
+import { safeEmailErrorDetails } from '../utils/email-error.util.js';
 
 @Processor(INVITATION_EMAIL_QUEUE, { concurrency: 3 })
 export class EmailNotificationWorker
@@ -28,8 +29,10 @@ export class EmailNotificationWorker
   }
 
   @OnWorkerEvent('error')
-  onError(): void {
-    this.logger.warn(`Worker (${INVITATION_EMAIL_QUEUE}) encountered an error`);
+  onError(error: unknown): void {
+    this.logger.warn(
+      `Worker (${INVITATION_EMAIL_QUEUE}) encountered an error ${safeEmailErrorDetails(error)}`,
+    );
   }
 
   @OnWorkerEvent('failed')
@@ -40,7 +43,9 @@ export class EmailNotificationWorker
       );
       return;
     }
-    this.logger.warn(`Job ${job.id} (${job.name}) attempt failed`);
+    this.logger.warn(
+      `Job ${job.id} (${job.name}) attempt=${job.attemptsMade}/${job.opts.attempts ?? 1} failed`,
+    );
   }
 
   @OnWorkerEvent('completed')

@@ -17,7 +17,8 @@ export class EmailService implements OnApplicationShutdown {
       auth: user
         ? { user, pass: this.config.getOrThrow<string>('SMTP_PASSWORD') }
         : undefined,
-      connectionTimeout: 5_000,
+      // Nodemailer includes DNS resolution in this deadline.
+      connectionTimeout: 20_000,
       greetingTimeout: 5_000,
       socketTimeout: 10_000,
     });
