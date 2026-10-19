@@ -16,6 +16,49 @@ export class OrganizationMembersService {
     private readonly permissions: PermissionsService,
   ) {}
 
+  async leaveForActor(actorId: string, organizationId: string): Promise<void> {
+    await this.prisma.serializableTransaction(async (manager) => {
+      const actor = await manager.user.findUnique({
+        where: { id: actorId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!actor) throw new UnauthorizedException('Authentication required');
+
+      const membership = await manager.organizationMember.findUnique({
+        where: { organizationId_userId: { organizationId, userId: actorId } },
+        select: {
+          id: true,
+          status: true,
+          deletedAt: true,
+          organization: {
+            select: { ownerId: true, deletedAt: true, isActive: true },
+          },
+        },
+      });
+      if (
+        !membership ||
+        membership.organization.deletedAt ||
+        !membership.organization.isActive
+      ) {
+        throw new ForbiddenException('Organization access denied');
+      }
+      if (membership.organization.ownerId === actorId) {
+        throw new ConflictException(
+          'Transfer ownership before leaving the organization',
+        );
+      }
+      if (membership.status !== 'ACTIVE') {
+        throw new ForbiddenException('Active membership required');
+      }
+      // Retain assignments as history; fresh invitation acceptance resets roles on rejoin.
+      if (membership.deletedAt) return;
+      await manager.organizationMember.update({
+        where: { id: membership.id, organizationId, userId: actorId },
+        data: { deletedAt: new Date() },
+      });
+    });
+  }
+
   async removeForActor(
     actorId: string,
     organizationId: string,

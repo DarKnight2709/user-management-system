@@ -5,6 +5,7 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -18,6 +19,16 @@ import { OrganizationMembersService } from './organization-members.service.js';
 @Controller('organizations/:organizationId/members')
 export class OrganizationMembersController {
   constructor(private readonly members: OrganizationMembersService) {}
+
+  @Post('leave')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Leave the organization' })
+  async leave(
+    @CurrentUser('id') actorId: string,
+    @Param('organizationId', ParseUUIDPipe) organizationId: string,
+  ): Promise<void> {
+    await this.members.leaveForActor(actorId, organizationId);
+  }
 
   @Delete(':memberId')
   @HttpCode(204)
