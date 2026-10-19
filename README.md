@@ -562,7 +562,8 @@ ownership or the separate platform deletion permission.
 roles with active catalog permission grants; built-in ADMIN/MEMBER are identified
 by isBuiltIn. OWNER is represented by ownerId and is not listed as a role.
 `GET /organizations/:organizationId/roles/permissions` lists the active organization
-permission catalog. Both require ORGANIZATION_ROLE read permission (or active
+permission catalog filtered to the caller's effective grants; owners receive the full
+active organization catalog. Both require ORGANIZATION_ROLE read permission (or active
 ownership), with authorization rechecked in the service transaction; platform
 administrators have no bypass. The catalog is shared with the permissions seed
 and excludes platform USER permissions. Viewing a permission does not authorize

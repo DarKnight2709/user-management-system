@@ -89,7 +89,7 @@ export class OrganizationRolesController {
   }
 
   @Get('permissions')
-  @ApiOperation({ summary: 'View the organization permission catalog' })
+  @ApiOperation({ summary: 'View organization permissions you can grant' })
   catalog(
     @CurrentUser('id') actorId: string,
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
