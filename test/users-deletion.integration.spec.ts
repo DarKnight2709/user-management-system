@@ -1,3 +1,5 @@
+import { OrganizationOwnershipService } from '../src/modules/organizations/ownership/organization-ownership.service.js';
+import { OrganizationOwnershipController } from '../src/modules/organizations/ownership/organization-ownership.controller.js';
 import { MemberRolesController } from '../src/modules/organizations/members/member-roles.controller.js';
 import { MemberRolesService } from '../src/modules/organizations/members/member-roles.service.js';
 import { OrganizationRolesService } from '../src/modules/organizations/roles/organization-roles.service.js';
@@ -308,6 +310,422 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         });
         membershipId = member.id;
       });
+      describe('Ownership transfer', () => {
+        const host = (hook?: Hook) =>
+          ({
+            serializableTransaction<T>(
+              operation: (manager: Prisma.TransactionClient) => Promise<T>,
+            ): Promise<T> {
+              return PrismaService.prototype.serializableTransaction.call(
+                { $transaction: db.$transaction.bind(db) },
+                (manager: Prisma.TransactionClient) =>
+                  operation(hook ? hook(manager) : manager),
+              ) as Promise<T>;
+            },
+          }) as PrismaService;
+        const ownership = (hook?: Hook) =>
+          new OrganizationOwnershipService(host(hook));
+        const transfer = (actorId = regularId, targetId = membershipId) =>
+          ownership().transferForActor(actorId, organizationId, targetId);
+        const ownerMembership = () =>
+          db.organizationMember.findUniqueOrThrow({
+            where: {
+              organizationId_userId: { organizationId, userId: regularId },
+            },
+          });
+
+        it('transfers ownerId, preserves memberships and gives the former owner MEMBER only', async () => {
+          await expect(transfer()).resolves.toEqual({
+            id: organizationId,
+            ownerId: adminId,
+            previousOwnerId: regularId,
+          });
+          const previous = await ownerMembership();
+          expect(previous).toMatchObject({ status: 'ACTIVE', deletedAt: null });
+          expect(
+            await db.memberRole.findMany({
+              where: { organizationMemberId: previous.id, deletedAt: null },
+            }),
+          ).toEqual([expect.objectContaining({ roleId })]);
+          expect(
+            await db.organization.count({
+              where: { id: organizationId, ownerId: adminId },
+            }),
+          ).toBe(1);
+          expect(
+            await organizations().currentPermissions(adminId, organizationId),
+          ).toHaveLength(11);
+          expect(
+            await organizations().currentPermissions(regularId, organizationId),
+          ).toHaveLength(3);
+          await expect(transfer()).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('preserves existing roles and restores a revoked MEMBER assignment without creating duplicates', async () => {
+          const previous = await ownerMembership();
+          const admin = await db.role.findFirstOrThrow({
+            where: { organizationId, name: 'ADMIN' },
+          });
+          await db.memberRole.createMany({
+            data: [
+              { organizationMemberId: previous.id, roleId: admin.id },
+              {
+                organizationMemberId: previous.id,
+                roleId,
+                deletedAt: new Date(),
+              },
+            ],
+          });
+          await transfer();
+          expect(
+            await db.memberRole.count({
+              where: { organizationMemberId: previous.id, deletedAt: null },
+            }),
+          ).toBe(2);
+          expect(
+            await db.memberRole.count({
+              where: { organizationMemberId: previous.id, roleId },
+            }),
+          ).toBe(1);
+        });
+
+        it('does not rewrite an already active MEMBER assignment', async () => {
+          const previous = await ownerMembership();
+          const assignment = await db.memberRole.create({
+            data: { organizationMemberId: previous.id, roleId },
+          });
+          await transfer();
+          expect(
+            (
+              await db.memberRole.findUniqueOrThrow({
+                where: { id: assignment.id },
+              })
+            ).updatedAt,
+          ).toEqual(assignment.updatedAt);
+        });
+
+        it('authorizes actual ownership only, without organization admin or platform admin bypass', async () => {
+          const admin = await db.role.findFirstOrThrow({
+            where: { organizationId, name: 'ADMIN' },
+          });
+          await db.memberRole.create({
+            data: { organizationMemberId: membershipId, roleId: admin.id },
+          });
+          for (const actor of [adminId, superId])
+            await expect(transfer(actor)).rejects.toMatchObject({
+              status: 403,
+            });
+        });
+
+        it('rejects transfer to self and nonlocal membership IDs', async () => {
+          await expect(
+            transfer(regularId, (await ownerMembership()).id),
+          ).rejects.toMatchObject({ status: 409 });
+          const other = await organizations().create(regularId, {
+            name: 'Other',
+            slug: `transfer-${randomUUID()}`,
+          });
+          const foreign = await db.organizationMember.findUniqueOrThrow({
+            where: {
+              organizationId_userId: {
+                organizationId: other.id,
+                userId: regularId,
+              },
+            },
+          });
+          await expect(transfer(regularId, foreign.id)).rejects.toMatchObject({
+            status: 404,
+          });
+          await expect(transfer(regularId, randomUUID())).rejects.toMatchObject(
+            { status: 404 },
+          );
+        });
+
+        it.each(['removed', 'suspended', 'invited', 'deleted user'])(
+          'rejects a %s recipient',
+          async (kind) => {
+            if (kind === 'removed')
+              await db.organizationMember.update({
+                where: { id: membershipId },
+                data: { deletedAt: new Date() },
+              });
+            if (kind === 'suspended')
+              await db.organizationMember.update({
+                where: { id: membershipId },
+                data: { status: 'SUSPENDED' },
+              });
+            if (kind === 'invited')
+              await db.organizationMember.update({
+                where: { id: membershipId },
+                data: { status: 'INVITED' },
+              });
+            if (kind === 'deleted user')
+              await db.user.update({
+                where: { id: adminId },
+                data: { deletedAt: new Date() },
+              });
+            await expect(transfer()).rejects.toMatchObject({ status: 404 });
+            expect(
+              (
+                await db.organization.findUniqueOrThrow({
+                  where: { id: organizationId },
+                })
+              ).ownerId,
+            ).toBe(regularId);
+          },
+        );
+
+        it.each([
+          'removed owner membership',
+          'suspended owner membership',
+          'inactive organization',
+          'deleted organization',
+        ])('rejects %s', async (kind) => {
+          if (kind === 'removed owner membership')
+            await db.organizationMember.update({
+              where: { id: (await ownerMembership()).id },
+              data: { deletedAt: new Date() },
+            });
+          if (kind === 'suspended owner membership')
+            await db.organizationMember.update({
+              where: { id: (await ownerMembership()).id },
+              data: { status: 'SUSPENDED' },
+            });
+          if (kind === 'inactive organization')
+            await db.organization.update({
+              where: { id: organizationId },
+              data: { isActive: false },
+            });
+          if (kind === 'deleted organization')
+            await db.organization.update({
+              where: { id: organizationId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(transfer()).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('rejects missing/deleted callers with 401 and inaccessible organizations with 403', async () => {
+          await expect(transfer(randomUUID())).rejects.toMatchObject({
+            status: 401,
+          });
+          await expect(
+            ownership().transferForActor(regularId, randomUUID(), membershipId),
+          ).rejects.toMatchObject({ status: 403 });
+          await db.user.update({
+            where: { id: regularId },
+            data: { deletedAt: new Date() },
+          });
+          await expect(transfer()).rejects.toMatchObject({ status: 401 });
+        });
+
+        it('rolls back transfer if the MEMBER role is unavailable', async () => {
+          await db.role.update({
+            where: { id: roleId },
+            data: { deletedAt: new Date() },
+          });
+          await expect(transfer()).rejects.toMatchObject({ status: 503 });
+          expect(
+            (
+              await db.organization.findUniqueOrThrow({
+                where: { id: organizationId },
+              })
+            ).ownerId,
+          ).toBe(regularId);
+        });
+
+        it('lets the previous owner delete their account while protecting the new owner', async () => {
+          await transfer();
+          await expect(deleteAs(superId, adminId)).rejects.toMatchObject({
+            status: 409,
+          });
+          await expect(deleteAs(superId, regularId)).resolves.toBeUndefined();
+        });
+
+        it('forwards authenticated IDs without requiring a delegable transfer permission', async () => {
+          const response = await new OrganizationOwnershipController(
+            ownership(),
+          ).transfer(regularId, organizationId, { memberId: membershipId });
+          expect(response).toMatchObject({
+            ownerId: adminId,
+            previousOwnerId: regularId,
+          });
+          expect(
+            new Reflector().get(
+              'requiredOrganizationPermissions',
+              Reflect.get(
+                OrganizationOwnershipController.prototype,
+                'transfer',
+              ),
+            ),
+          ).toBeUndefined();
+        });
+
+        // Force both transactions to read their initial snapshots before mutations.
+        const rendezvous = () => {
+          let reached = 0;
+          let release!: () => void;
+          const ready = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return async () => {
+            if (++reached === 2) release();
+            if (reached <= 2) await ready;
+          };
+        };
+        const pauseTransfer =
+          (wait: () => Promise<void>): Hook =>
+          (manager) =>
+            new Proxy(manager, {
+              get(target, property) {
+                if (property !== 'organizationMember')
+                  return Reflect.get(target, property);
+                return new Proxy(target.organizationMember, {
+                  get(delegate, method) {
+                    if (method !== 'findFirst')
+                      return Reflect.get(delegate, method);
+                    return async (
+                      args: Prisma.OrganizationMemberFindFirstArgs,
+                    ) => {
+                      const result = await delegate.findFirst(args);
+                      if (args.where?.id) await wait();
+                      return result;
+                    };
+                  },
+                });
+              },
+            });
+
+        it('serializes competing transfers so only one request by the old owner succeeds', async () => {
+          const second = await createUser();
+          const secondMembership = await db.organizationMember.create({
+            data: { organizationId, userId: second.id },
+          });
+          const wait = rendezvous();
+          const api = ownership(pauseTransfer(wait));
+          const results = await Promise.allSettled([
+            api.transferForActor(regularId, organizationId, membershipId),
+            api.transferForActor(
+              regularId,
+              organizationId,
+              secondMembership.id,
+            ),
+          ]);
+          expect(
+            results.filter((result) => result.status === 'fulfilled'),
+          ).toHaveLength(1);
+          expect(
+            results.find((result) => result.status === 'rejected'),
+          ).toMatchObject({ reason: { status: 403 } });
+          const org = await db.organization.findUniqueOrThrow({
+            where: { id: organizationId },
+          });
+          expect([adminId, second.id]).toContain(org.ownerId);
+          expect(
+            await db.organizationMember.count({
+              where: {
+                organizationId,
+                userId: org.ownerId,
+                status: 'ACTIVE',
+                deletedAt: null,
+                user: { deletedAt: null },
+              },
+            }),
+          ).toBe(1);
+        });
+
+        it('coordinates transfer with deletion of the prospective owner account', async () => {
+          const wait = rendezvous();
+          const deleting = service(
+            (manager) =>
+              new Proxy(manager, {
+                get(target, property) {
+                  if (property !== 'user') return Reflect.get(target, property);
+                  return new Proxy(target.user, {
+                    get(delegate, method) {
+                      if (method !== 'update')
+                        return Reflect.get(delegate, method);
+                      return async (args: Prisma.UserUpdateArgs) => {
+                        await wait();
+                        return delegate.update(args);
+                      };
+                    },
+                  });
+                },
+              }),
+          );
+          const results = await Promise.allSettled([
+            ownership(pauseTransfer(wait)).transferForActor(
+              regularId,
+              organizationId,
+              membershipId,
+            ),
+            deleting.delete({ actorId: superId, targetId: adminId }),
+          ]);
+          expect(
+            results.filter((result) => result.status === 'fulfilled'),
+          ).toHaveLength(1);
+          const org = await db.organization.findUniqueOrThrow({
+            where: { id: organizationId },
+          });
+          expect(
+            (await db.user.findUniqueOrThrow({ where: { id: org.ownerId } }))
+              .deletedAt,
+          ).toBeNull();
+        });
+
+        it('coordinates transfer with removal of the prospective owner membership', async () => {
+          const wait = rendezvous();
+          const removing = new OrganizationMembersService(
+            host(
+              (manager) =>
+                new Proxy(manager, {
+                  get(target, property) {
+                    if (property !== 'organizationMember')
+                      return Reflect.get(target, property);
+                    return new Proxy(target.organizationMember, {
+                      get(delegate, method) {
+                        if (method !== 'update')
+                          return Reflect.get(delegate, method);
+                        return async (
+                          args: Prisma.OrganizationMemberUpdateArgs,
+                        ) => {
+                          await wait();
+                          return delegate.update(args);
+                        };
+                      },
+                    });
+                  },
+                }),
+            ),
+            new PermissionsService(db as unknown as PrismaService),
+          );
+          const results = await Promise.allSettled([
+            ownership(pauseTransfer(wait)).transferForActor(
+              regularId,
+              organizationId,
+              membershipId,
+            ),
+            removing.removeForActor(regularId, organizationId, membershipId),
+          ]);
+          expect(
+            results.filter((result) => result.status === 'fulfilled'),
+          ).toHaveLength(1);
+          const org = await db.organization.findUniqueOrThrow({
+            where: { id: organizationId },
+          });
+          expect(
+            await db.organizationMember.count({
+              where: {
+                organizationId,
+                userId: org.ownerId,
+                status: 'ACTIVE',
+                deletedAt: null,
+              },
+            }),
+          ).toBe(1);
+        });
+      });
+
       describe('Current organization permissions', () => {
         const current = (actorId = adminId, orgId = organizationId) =>
           organizations().currentPermissions(actorId, orgId);

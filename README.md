@@ -494,9 +494,31 @@ other members. No OWNER role is needed. Business rules and platform permissions
 still apply independently.
 Organization creation, reading/listing, name updates, member listing/removal,
 invitations, and initial ADMIN/MEMBER provisioning are implemented. Organization
-deletion and safe ownership transfer remain to be implemented. Organization role
+deletion remains to be implemented. Ownership transfer and organization role
 assignment/revocation is implemented with scope and delegation safeguards. Custom role listing, creation, editing and deletion
 are implemented.
+
+### Organization ownership transfer
+
+`POST /organizations/:organizationId/transfer-ownership` accepts
+`{ "memberId": "<membership-uuid>" }` and returns 200 with id, ownerId and
+previousOwnerId. Only the actual owner with an active account, membership and
+organization can transfer; platform admins and organization ADMIN roles have no
+bypass. No delegable transfer permission or OWNER role is involved. The recipient
+must be another active, nondeleted member in that organization with a nondeleted
+account. Self-transfer returns 409 and invalid/nonlocal recipients return 404.
+
+A serializable transaction updates ownerId and ensures the former owner has the
+active local MEMBER role. It retains every other existing role and never grants
+ADMIN automatically; the new owner's existing roles and membership remain intact.
+If MEMBER is unavailable, the entire operation rolls back with 503. After success,
+old ownership authority ends on subsequent checks. Retrying the same request as
+the former owner returns 403; transfer is not an idempotent retry operation.
+
+Forced-overlap PostgreSQL tests cover competing transfers and races with recipient
+account deletion and member removal. Ownership remains unique and attached to an
+active member with a nondeleted account. There is no migration or seed operation.
+Audit recording, transfer notifications and recipient acceptance are not implemented.
 
 ### Your organization permissions
 
@@ -512,8 +534,8 @@ receive 403 with no platform-admin bypass. Grants are combined and deduplicated
 across active same-organization roles, excluding revoked/system/legacy OWNER roles
 and permissions outside the organization catalog. Responses use Cache-Control: no-store.
 These are UI capabilities, not authority to submit arbitrary grants: create/update
-permissions and delegation checks remain enforced on the server. Owners still need
-explicit ownerId checks in future deletion/ownership-transfer endpoints.
+permissions and delegation checks remain enforced on the server. Ownership transfer enforces ownerId explicitly; future organization deletion must
+do the same.
 
 ### Organization role reads
 
@@ -573,7 +595,7 @@ membership and grant history. Explicit reassignment restores the same record.
 Repeated authorized requests are idempotent; inactive/deleted targets remain invalid.
 Changes are reflected on subsequent permission checks. Assign/revoke and concurrent
 role deletion are covered with isolated PostgreSQL tests. Generalized role restoration,
-ownership transfer and organization deletion remain separate work.
+organization deletion remains separate work. Ownership transfer is implemented above.
 
 Existing database cleanup for this catalog change is manual: remove organization-role
 links for ORGANIZATION delete and transfer-ownership, remove remaining links before
