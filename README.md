@@ -494,9 +494,28 @@ other members. No OWNER role is needed. Business rules and platform permissions
 still apply independently.
 Organization creation, reading/listing, name updates, member listing/removal,
 invitations, and initial ADMIN/MEMBER provisioning are implemented. Organization
-deletion remains to be implemented. Ownership transfer and organization role
-assignment/revocation is implemented with scope and delegation safeguards. Custom role listing, creation, editing and deletion
-are implemented.
+soft deletion, ownership transfer, role assignment/revocation, and custom-role
+listing, creation, editing and deletion are implemented with scope and authority
+safeguards.
+
+### Organization soft deletion
+
+`DELETE /organizations/:organizationId` returns 204 for the active owner with an
+active membership, or an active user with platform ORGANIZATION delete permission.
+Platform administrators need no organization membership. Organization ADMIN and
+local role grants never authorize deletion. Inactive organizations may be deleted;
+deleted caller accounts return 401. Non-platform callers receive 403 for missing or
+inaccessible organizations; authorized platform callers receive 404 for missing IDs.
+
+One serializable transaction sets deletedAt, sets isActive=false, and revokes pending
+invitations with revokedAt. Existing memberships, roles, assignments, accepted
+invitations, user accounts and avatar objects remain as history. Authorization and
+workers exclude the deleted organization on subsequent checks. In-flight emails
+cannot be recalled. No Redis/SMTP side effects occur in the deletion transaction.
+Authorized repeated deletion is a no-op, preserving the original deletion time;
+current caller authority is always rechecked. Owning only deleted organizations no
+longer blocks account deletion. The slug remains reserved. Restoration, retention
+cleanup and audit recording are not implemented.
 
 ### Organization ownership transfer
 
@@ -534,8 +553,8 @@ receive 403 with no platform-admin bypass. Grants are combined and deduplicated
 across active same-organization roles, excluding revoked/system/legacy OWNER roles
 and permissions outside the organization catalog. Responses use Cache-Control: no-store.
 These are UI capabilities, not authority to submit arbitrary grants: create/update
-permissions and delegation checks remain enforced on the server. Ownership transfer enforces ownerId explicitly; future organization deletion must
-do the same.
+permissions and delegation checks remain enforced on the server. Ownership transfer checks ownerId explicitly; organization deletion checks active
+ownership or the separate platform deletion permission.
 
 ### Organization role reads
 
@@ -595,7 +614,7 @@ membership and grant history. Explicit reassignment restores the same record.
 Repeated authorized requests are idempotent; inactive/deleted targets remain invalid.
 Changes are reflected on subsequent permission checks. Assign/revoke and concurrent
 role deletion are covered with isolated PostgreSQL tests. Generalized role restoration,
-organization deletion remains separate work. Ownership transfer is implemented above.
+organization restoration remains separate work. Ownership transfer and deletion are implemented above.
 
 Existing database cleanup for this catalog change is manual: remove organization-role
 links for ORGANIZATION delete and transfer-ownership, remove remaining links before
