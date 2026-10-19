@@ -32,9 +32,14 @@ response proves email delivery.
 or request resend after cooldown. `deliveryStatus` distinguishes NOT_QUEUED,
 QUEUED, SENT, FAILED; SENT means SMTP accepted the recipient, not inbox delivery.
 
-Acceptance atomically consumes the invitation, creates ACTIVE membership, and
-assigns the active, local MEMBER role. It never restores suspended/deleted/other
-retained memberships or grants ADMIN. Pending duplicates are blocked by a partial
+Acceptance atomically consumes the invitation and assigns the active, local MEMBER
+role. New members receive a new ACTIVE membership. Previously removed ACTIVE
+members reuse their existing membership only through an invitation created after
+removal; acceptance revokes all historical role assignments and activates only
+MEMBER. Active or suspended memberships and deleted accounts cannot be invited.
+Old invitations cannot be accepted, resent, or copied after removal; creating a
+fresh invitation revokes stale pending invitations. Rejoining never restores ADMIN
+or custom roles. Pending duplicates are blocked by a partial
 unique index; expired pending rows are marked EXPIRED when creating a replacement.
 Expired status in list responses is derived immediately, without a cleanup job.
 

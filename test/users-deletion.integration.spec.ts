@@ -1,3 +1,6 @@
+import { InvitationsService } from '../src/modules/organizations/invitations/services/invitations.service.js';
+import { InvitationLinksService } from '../src/modules/organizations/invitations/services/invitation-links.service.js';
+import type { InvitationEmailService } from '../src/modules/organizations/invitations/services/invitation-email.service.js';
 import { OrganizationOwnershipService } from '../src/modules/organizations/ownership/organization-ownership.service.js';
 import { OrganizationOwnershipController } from '../src/modules/organizations/ownership/organization-ownership.controller.js';
 import { MemberRolesController } from '../src/modules/organizations/members/member-roles.controller.js';
@@ -311,6 +314,423 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         });
         membershipId = member.id;
       });
+      describe('Removed member reinvitation', () => {
+        const links = new InvitationLinksService(
+          new ConfigService({
+            INVITATION_TOKEN_SECRET: 'reinvitation-fixture-secret-'.repeat(4),
+            FRONTEND_URL: 'http://frontend.invalid',
+          }),
+        );
+        const enqueue = vi.fn(async () => true);
+        const invitations = (hook?: Hook) => {
+          const host = {
+            serializableTransaction<T>(
+              operation: (manager: Prisma.TransactionClient) => Promise<T>,
+            ): Promise<T> {
+              return PrismaService.prototype.serializableTransaction.call(
+                { $transaction: db.$transaction.bind(db) },
+                (manager: Prisma.TransactionClient) =>
+                  operation(hook ? hook(manager) : manager),
+              ) as Promise<T>;
+            },
+          } as PrismaService;
+          return new InvitationsService(
+            host,
+            new PermissionsService(db as unknown as PrismaService),
+            links,
+            { enqueue } as unknown as InvitationEmailService,
+          );
+        };
+        const remove = () =>
+          members().removeForActor(regularId, organizationId, membershipId);
+        const fresh = async () => {
+          const user = await db.user.findUniqueOrThrow({
+            where: { id: adminId },
+          });
+          await expect(
+            invitations().create(regularId, organizationId, {
+              email: user.email,
+            }),
+          ).resolves.toEqual({ emailQueued: true });
+          return db.organizationInvitation.findFirstOrThrow({
+            where: { organizationId, email: user.email, status: 'PENDING' },
+          });
+        };
+        const rejoin = (id: string) =>
+          invitations().accept(adminId, links.token(id));
+
+        it('reinvites a removed admin and restores the same membership as MEMBER only', async () => {
+          const adminRole = await db.role.findFirstOrThrow({
+            where: { organizationId, name: 'ADMIN' },
+          });
+          const custom = await db.role.create({
+            data: { organizationId, name: 'LEGACY_CUSTOM' },
+          });
+          await db.memberRole.createMany({
+            data: [
+              { organizationMemberId: membershipId, roleId: adminRole.id },
+              { organizationMemberId: membershipId, roleId: custom.id },
+            ],
+          });
+          await remove();
+          await expect(
+            organizations().currentPermissions(adminId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+          const invitation = await fresh();
+          expect(
+            (
+              await db.organizationMember.findUniqueOrThrow({
+                where: { id: membershipId },
+              })
+            ).deletedAt,
+          ).toBeInstanceOf(Date);
+          await expect(rejoin(invitation.id)).resolves.toEqual({
+            organizationId,
+            membershipId,
+          });
+          expect(
+            await db.organizationMember.count({
+              where: { organizationId, userId: adminId },
+            }),
+          ).toBe(1);
+          expect(
+            await db.organizationMember.findUniqueOrThrow({
+              where: { id: membershipId },
+            }),
+          ).toMatchObject({ status: 'ACTIVE', deletedAt: null });
+          expect(
+            await db.memberRole.findMany({
+              where: { organizationMemberId: membershipId, deletedAt: null },
+            }),
+          ).toEqual([expect.objectContaining({ roleId })]);
+          expect(
+            await db.memberRole.count({
+              where: { organizationMemberId: membershipId },
+            }),
+          ).toBe(3);
+          expect(
+            await organizations().currentPermissions(adminId, organizationId),
+          ).toHaveLength(3);
+          expect(
+            await db.organizationInvitation.findUniqueOrThrow({
+              where: { id: invitation.id },
+            }),
+          ).toMatchObject({ status: 'ACCEPTED', acceptedById: adminId });
+        });
+
+        it('restores an existing revoked MEMBER assignment without duplicates', async () => {
+          const original = await db.memberRole.findFirstOrThrow({
+            where: { organizationMemberId: membershipId, roleId },
+          });
+          await db.memberRole.update({
+            where: { id: original.id },
+            data: { deletedAt: new Date() },
+          });
+          await remove();
+          const invitation = await fresh();
+          await rejoin(invitation.id);
+          expect(
+            await db.memberRole.findUniqueOrThrow({
+              where: { id: original.id },
+            }),
+          ).toMatchObject({ deletedAt: null });
+          expect(
+            await db.memberRole.count({
+              where: { organizationMemberId: membershipId },
+            }),
+          ).toBe(1);
+        });
+
+        it.each([
+          'active',
+          'suspended',
+          'removed suspended',
+          'deleted account',
+        ])('does not invite an %s account/membership', async (kind) => {
+          if (kind === 'suspended')
+            await db.organizationMember.update({
+              where: { id: membershipId },
+              data: { status: 'SUSPENDED' },
+            });
+          if (kind === 'removed suspended')
+            await db.organizationMember.update({
+              where: { id: membershipId },
+              data: { status: 'SUSPENDED', deletedAt: new Date() },
+            });
+          if (kind === 'deleted account')
+            await db.user.update({
+              where: { id: adminId },
+              data: { deletedAt: new Date() },
+            });
+          const user = await db.user.findUniqueOrThrow({
+            where: { id: adminId },
+          });
+          await expect(
+            invitations().create(regularId, organizationId, {
+              email: user.email,
+            }),
+          ).rejects.toMatchObject({ status: 409 });
+          expect(
+            await db.organizationInvitation.count({
+              where: { organizationId },
+            }),
+          ).toBe(0);
+        });
+
+        it('rejects old links after removal and supersedes stale pending invitations on a fresh request', async () => {
+          const user = await db.user.findUniqueOrThrow({
+            where: { id: adminId },
+          });
+          const id = randomUUID();
+          const old = await db.organizationInvitation.create({
+            data: {
+              id,
+              organizationId,
+              email: user.email,
+              tokenHash: links.hash(links.token(id)),
+              invitedById: regularId,
+              expiresAt: new Date(Date.now() + 60_000),
+              createdAt: new Date(Date.now() - 86_400_000),
+            },
+          });
+          await remove();
+          await expect(rejoin(old.id)).rejects.toMatchObject({ status: 409 });
+          await expect(
+            invitations().resend(regularId, organizationId, old.id),
+          ).rejects.toMatchObject({ status: 409 });
+          await expect(
+            invitations().copyLink(regularId, organizationId, old.id),
+          ).rejects.toMatchObject({ status: 409 });
+          const invitation = await fresh();
+          expect(
+            (
+              await db.organizationInvitation.findUniqueOrThrow({
+                where: { id: old.id },
+              })
+            ).status,
+          ).toBe('REVOKED');
+          await rejoin(invitation.id);
+        });
+
+        it('requires the matching email and respects revocation/expiry', async () => {
+          await remove();
+          const invitation = await fresh();
+          await expect(
+            invitations().accept(regularId, links.token(invitation.id)),
+          ).rejects.toMatchObject({ status: 403 });
+          await db.organizationInvitation.update({
+            where: { id: invitation.id },
+            data: { expiresAt: new Date(Date.now() - 1000) },
+          });
+          await expect(rejoin(invitation.id)).rejects.toMatchObject({
+            status: 409,
+          });
+          await db.organizationInvitation.update({
+            where: { id: invitation.id },
+            data: {
+              expiresAt: new Date(Date.now() + 60_000),
+              status: 'REVOKED',
+            },
+          });
+          await expect(rejoin(invitation.id)).rejects.toMatchObject({
+            status: 409,
+          });
+        });
+
+        it('still allows resend and copy of a fresh invitation after removal', async () => {
+          await remove();
+          const invitation = await fresh();
+          await expect(
+            invitations().copyLink(regularId, organizationId, invitation.id),
+          ).resolves.toMatchObject({ inviteLink: links.link(invitation.id) });
+          await db.organizationInvitation.update({
+            where: { id: invitation.id },
+            data: { lastRequestedAt: new Date(Date.now() - 61_000) },
+          });
+          await expect(
+            invitations().resend(regularId, organizationId, invitation.id),
+          ).resolves.toEqual({ emailQueued: true });
+          await rejoin(invitation.id);
+        });
+
+        it.each([
+          'suspended',
+          'already restored',
+          'deleted user',
+          'inactive organization',
+          'deleted MEMBER role',
+        ])('rechecks %s at acceptance', async (kind) => {
+          await remove();
+          const invitation = await fresh();
+          if (kind === 'suspended')
+            await db.organizationMember.update({
+              where: { id: membershipId },
+              data: { status: 'SUSPENDED' },
+            });
+          if (kind === 'already restored')
+            await db.organizationMember.update({
+              where: { id: membershipId },
+              data: { deletedAt: null },
+            });
+          if (kind === 'deleted user')
+            await db.user.update({
+              where: { id: adminId },
+              data: { deletedAt: new Date() },
+            });
+          if (kind === 'inactive organization')
+            await db.organization.update({
+              where: { id: organizationId },
+              data: { isActive: false },
+            });
+          if (kind === 'deleted MEMBER role')
+            await db.role.update({
+              where: { id: roleId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(rejoin(invitation.id)).rejects.toMatchObject({
+            status:
+              kind === 'deleted user'
+                ? 401
+                : kind === 'deleted MEMBER role'
+                  ? 503
+                  : 409,
+          });
+          expect(
+            (
+              await db.organizationInvitation.findUniqueOrThrow({
+                where: { id: invitation.id },
+              })
+            ).status,
+          ).toBe('PENDING');
+        });
+
+        it('rolls back invitation consumption and role changes if membership restoration fails', async () => {
+          await remove();
+          const invitation = await fresh();
+          const service = invitations(
+            (manager) =>
+              new Proxy(manager, {
+                get(target, property) {
+                  if (property !== 'organizationMember')
+                    return Reflect.get(target, property);
+                  return new Proxy(target.organizationMember, {
+                    get(delegate, method) {
+                      if (method !== 'update')
+                        return Reflect.get(delegate, method);
+                      return () => {
+                        throw new Error('Fixture restoration failure');
+                      };
+                    },
+                  });
+                },
+              }),
+          );
+          await expect(
+            service.accept(adminId, links.token(invitation.id)),
+          ).rejects.toThrow('Fixture restoration failure');
+          expect(
+            (
+              await db.organizationInvitation.findUniqueOrThrow({
+                where: { id: invitation.id },
+              })
+            ).status,
+          ).toBe('PENDING');
+          expect(
+            (
+              await db.organizationMember.findUniqueOrThrow({
+                where: { id: membershipId },
+              })
+            ).deletedAt,
+          ).toBeInstanceOf(Date);
+          expect(
+            await db.memberRole.count({
+              where: { organizationMemberId: membershipId, deletedAt: null },
+            }),
+          ).toBe(1);
+        });
+
+        it('consumes a reinvitation only once under concurrent acceptance', async () => {
+          await remove();
+          const invitation = await fresh();
+          const results = await Promise.allSettled([
+            rejoin(invitation.id),
+            rejoin(invitation.id),
+          ]);
+          expect(
+            results.filter((result) => result.status === 'fulfilled'),
+          ).toHaveLength(1);
+          expect(
+            results.find((result) => result.status === 'rejected'),
+          ).toMatchObject({ reason: { status: 409 } });
+          expect(
+            await db.organizationMember.count({
+              where: { organizationId, userId: adminId },
+            }),
+          ).toBe(1);
+          expect(
+            await db.memberRole.count({
+              where: { organizationMemberId: membershipId, deletedAt: null },
+            }),
+          ).toBe(1);
+        });
+
+        it('coordinates acceptance and revocation so a revoked invitation cannot restore access', async () => {
+          await remove();
+          const invitation = await fresh();
+          let reached = 0;
+          let release!: () => void;
+          const barrier = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          const wait = async () => {
+            if (++reached === 2) release();
+            if (reached <= 2) await barrier;
+          };
+          const hook: Hook = (manager) =>
+            new Proxy(manager, {
+              get(target, property) {
+                if (property !== 'organizationInvitation')
+                  return Reflect.get(target, property);
+                return new Proxy(target.organizationInvitation, {
+                  get(delegate, method) {
+                    if (method === 'findUnique')
+                      return async (
+                        args: Prisma.OrganizationInvitationFindUniqueArgs,
+                      ) => {
+                        const value = await delegate.findUnique(args);
+                        await wait();
+                        return value;
+                      };
+                    if (method === 'findFirst')
+                      return async (
+                        args: Prisma.OrganizationInvitationFindFirstArgs,
+                      ) => {
+                        const value = await delegate.findFirst(args);
+                        await wait();
+                        return value;
+                      };
+                    return Reflect.get(delegate, method);
+                  },
+                });
+              },
+            });
+          const results = await Promise.allSettled([
+            invitations(hook).accept(adminId, links.token(invitation.id)),
+            invitations(hook).revoke(regularId, organizationId, invitation.id),
+          ]);
+          expect(
+            results.filter((result) => result.status === 'fulfilled'),
+          ).toHaveLength(1);
+          const final = await db.organizationInvitation.findUniqueOrThrow({
+            where: { id: invitation.id },
+          });
+          const member = await db.organizationMember.findUniqueOrThrow({
+            where: { id: membershipId },
+          });
+          expect(member.deletedAt === null).toBe(final.status === 'ACCEPTED');
+        });
+      });
+
       describe('Organization soft deletion', () => {
         const grantPlatformDelete = async () => {
           const permission = await db.permission.create({
