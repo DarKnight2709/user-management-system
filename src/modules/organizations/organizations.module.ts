@@ -15,10 +15,13 @@ import { OrganizationRolesController } from './roles/organization-roles.controll
 import { OrganizationRolesService } from './roles/organization-roles.service.js';
 import { MemberRolesController } from './members/member-roles.controller.js';
 import { MemberRolesService } from './members/member-roles.service.js';
+import { OrganizationOwnershipController } from './ownership/organization-ownership.controller.js';
+import { OrganizationOwnershipService } from './ownership/organization-ownership.service.js';
 
 @Module({
   imports: [InvitationQueueModule],
   controllers: [
+    OrganizationOwnershipController,
     MemberRolesController,
     OrganizationRolesController,
     OrganizationsController,
@@ -27,6 +30,7 @@ import { MemberRolesService } from './members/member-roles.service.js';
     InvitationAcceptanceController,
   ],
   providers: [
+    OrganizationOwnershipService,
     MemberRolesService,
     OrganizationRolesService,
     OrganizationsService,
