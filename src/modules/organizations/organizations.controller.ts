@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
+  HttpCode,
   Param,
   Patch,
   ParseUUIDPipe,
@@ -22,6 +24,19 @@ import { UpdateOrganizationDto } from './dto/update-organization.dto.js';
 @Controller('organizations')
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
+
+  @Delete(':organizationId')
+  @HttpCode(204)
+  @ApiOperation({
+    summary:
+      'Soft-delete an organization as its owner or a platform administrator',
+  })
+  async delete(
+    @CurrentUser('id') actorId: string,
+    @Param('organizationId', ParseUUIDPipe) organizationId: string,
+  ): Promise<void> {
+    await this.organizationsService.deleteForActor(actorId, organizationId);
+  }
 
   @Get(':organizationId/me/permissions')
   @Header('Cache-Control', 'no-store')

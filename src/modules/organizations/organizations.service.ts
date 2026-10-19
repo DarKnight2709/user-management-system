@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -37,6 +38,60 @@ export class OrganizationsService {
     private readonly prisma: PrismaService,
     private readonly permissionsService: PermissionsService,
   ) {}
+
+  async deleteForActor(actorId: string, organizationId: string): Promise<void> {
+    await this.prisma.serializableTransaction(async (manager) => {
+      const actor = await manager.user.findUnique({
+        where: { id: actorId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!actor) throw new UnauthorizedException('Authentication required');
+
+      const platformAllowed =
+        await this.permissionsService.hasPlatformPermission(
+          actorId,
+          { resource: 'ORGANIZATION', action: 'delete' },
+          manager,
+        );
+      const organization = await manager.organization.findUnique({
+        where: { id: organizationId },
+        select: { ownerId: true, deletedAt: true },
+      });
+      if (!organization) {
+        if (platformAllowed)
+          throw new NotFoundException('Organization not found');
+        throw new ForbiddenException('Organization deletion access denied');
+      }
+
+      if (!platformAllowed) {
+        const ownerMembership =
+          organization.ownerId === actorId
+            ? await manager.organizationMember.findFirst({
+                where: {
+                  organizationId,
+                  userId: actorId,
+                  status: 'ACTIVE',
+                  deletedAt: null,
+                },
+                select: { id: true },
+              })
+            : null;
+        if (!ownerMembership)
+          throw new ForbiddenException('Organization deletion access denied');
+      }
+      if (organization.deletedAt) return;
+
+      const now = new Date();
+      await manager.organization.update({
+        where: { id: organizationId, deletedAt: null },
+        data: { deletedAt: now, isActive: false },
+      });
+      await manager.organizationInvitation.updateMany({
+        where: { organizationId, status: 'PENDING' },
+        data: { status: 'REVOKED', revokedAt: now },
+      });
+    });
+  }
 
   async currentPermissions(actorId: string, organizationId: string) {
     return this.prisma.serializableTransaction((manager) =>

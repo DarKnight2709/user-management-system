@@ -192,6 +192,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
     beforeEach(async () => {
       conflicts = 0;
       await db.$transaction([
+        db.organizationInvitation.deleteMany(),
         db.memberRole.deleteMany(),
         db.rolePermission.deleteMany(),
         db.userPlatformRole.deleteMany(),
@@ -310,6 +311,304 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         });
         membershipId = member.id;
       });
+      describe('Organization soft deletion', () => {
+        const grantPlatformDelete = async () => {
+          const permission = await db.permission.create({
+            data: { resource: 'ORGANIZATION', action: 'delete' },
+          });
+          await db.rolePermission.create({
+            data: { roleId: superRoleId, permissionId: permission.id },
+          });
+          return permission;
+        };
+        const host = (hook?: Hook) =>
+          ({
+            serializableTransaction<T>(
+              operation: (manager: Prisma.TransactionClient) => Promise<T>,
+            ): Promise<T> {
+              return PrismaService.prototype.serializableTransaction.call(
+                { $transaction: db.$transaction.bind(db) },
+                (manager: Prisma.TransactionClient) =>
+                  operation(hook ? hook(manager) : manager),
+              ) as Promise<T>;
+            },
+          }) as PrismaService;
+        const deletion = (hook?: Hook) =>
+          new OrganizationsService(
+            host(hook),
+            new PermissionsService(db as unknown as PrismaService),
+          );
+        const remove = (actorId = regularId, id = organizationId) =>
+          deletion().deleteForActor(actorId, id);
+        const invite = (
+          status: 'PENDING' | 'ACCEPTED' = 'PENDING',
+          orgId = organizationId,
+        ) =>
+          db.organizationInvitation.create({
+            data: {
+              organizationId: orgId,
+              email: `${randomUUID()}@example.com`,
+              tokenHash: randomUUID(),
+              invitedById: regularId,
+              expiresAt: new Date(Date.now() + 60_000),
+              status,
+            },
+          });
+
+        it('allows owners without a deletion grant and retains membership/role history', async () => {
+          const before = {
+            members: await db.organizationMember.count({
+              where: { organizationId },
+            }),
+            roles: await db.role.count({ where: { organizationId } }),
+            assignments: await db.memberRole.count(),
+          };
+          await expect(remove()).resolves.toBeUndefined();
+          expect(
+            await db.organization.findUniqueOrThrow({
+              where: { id: organizationId },
+            }),
+          ).toMatchObject({ deletedAt: expect.any(Date), isActive: false });
+          expect(
+            await db.organizationMember.count({ where: { organizationId } }),
+          ).toBe(before.members);
+          expect(await db.role.count({ where: { organizationId } })).toBe(
+            before.roles,
+          );
+          expect(await db.memberRole.count()).toBe(before.assignments);
+          await expect(
+            organizations().currentPermissions(regularId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+          await expect(
+            organizations().currentPermissions(adminId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('requires exact active platform deletion permission for the platform bypass', async () => {
+          await expect(remove(superId)).rejects.toMatchObject({ status: 403 });
+          const permission = await grantPlatformDelete();
+          await expect(remove(superId)).resolves.toBeUndefined();
+          await db.rolePermission.updateMany({
+            where: { roleId: superRoleId, permissionId: permission.id },
+            data: { deletedAt: new Date() },
+          });
+          await expect(remove(superId)).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('does not accept organization ADMIN or organization-role deletion grants', async () => {
+          const admin = await db.role.findFirstOrThrow({
+            where: { organizationId, name: 'ADMIN' },
+          });
+          await db.memberRole.create({
+            data: { organizationMemberId: membershipId, roleId: admin.id },
+          });
+          const permission = await db.permission.create({
+            data: { resource: 'ORGANIZATION', action: 'delete' },
+          });
+          await db.rolePermission.create({
+            data: { roleId: admin.id, permissionId: permission.id },
+          });
+          await expect(remove(adminId)).rejects.toMatchObject({ status: 403 });
+        });
+
+        it.each([
+          'revoked permission',
+          'revoked platform role',
+          'deleted platform role',
+        ])('rejects a %s', async (kind) => {
+          const permission = await grantPlatformDelete();
+          if (kind === 'revoked permission')
+            await db.permission.update({
+              where: { id: permission.id },
+              data: { deletedAt: new Date() },
+            });
+          if (kind === 'revoked platform role')
+            await db.userPlatformRole.updateMany({
+              where: { userId: superId },
+              data: { deletedAt: new Date() },
+            });
+          if (kind === 'deleted platform role')
+            await db.role.update({
+              where: { id: superRoleId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(remove(superId)).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('requires active owner membership but permits deletion of an inactive organization', async () => {
+          await db.organizationMember.updateMany({
+            where: { organizationId, userId: regularId },
+            data: { status: 'SUSPENDED' },
+          });
+          await expect(remove()).rejects.toMatchObject({ status: 403 });
+          await db.organizationMember.updateMany({
+            where: { organizationId, userId: regularId },
+            data: { status: 'ACTIVE' },
+          });
+          await db.organization.update({
+            where: { id: organizationId },
+            data: { isActive: false },
+          });
+          await expect(remove()).resolves.toBeUndefined();
+        });
+
+        it('revokes pending invitations atomically without changing accepted or other organization invitations', async () => {
+          const pending = await invite();
+          const accepted = await invite('ACCEPTED');
+          const other = await organizations().create(regularId, {
+            name: 'Other',
+            slug: `delete-other-${randomUUID()}`,
+          });
+          const unrelated = await invite('PENDING', other.id);
+          await remove();
+          expect(
+            await db.organizationInvitation.findUniqueOrThrow({
+              where: { id: pending.id },
+            }),
+          ).toMatchObject({ status: 'REVOKED', revokedAt: expect.any(Date) });
+          expect(
+            await db.organizationInvitation.findUniqueOrThrow({
+              where: { id: accepted.id },
+            }),
+          ).toMatchObject({ status: 'ACCEPTED', revokedAt: null });
+          expect(
+            await db.organizationInvitation.findUniqueOrThrow({
+              where: { id: unrelated.id },
+            }),
+          ).toMatchObject({ status: 'PENDING', revokedAt: null });
+        });
+
+        it('rolls back deletion if invitation revocation fails', async () => {
+          await invite();
+          const api = deletion(
+            (manager) =>
+              new Proxy(manager, {
+                get(target, property) {
+                  if (property !== 'organizationInvitation')
+                    return Reflect.get(target, property);
+                  return new Proxy(target.organizationInvitation, {
+                    get(delegate, method) {
+                      if (method !== 'updateMany')
+                        return Reflect.get(delegate, method);
+                      return () => {
+                        throw new Error('Fixture revocation failure');
+                      };
+                    },
+                  });
+                },
+              }),
+          );
+          await expect(
+            api.deleteForActor(regularId, organizationId),
+          ).rejects.toThrow('Fixture revocation failure');
+          expect(
+            (
+              await db.organization.findUniqueOrThrow({
+                where: { id: organizationId },
+              })
+            ).deletedAt,
+          ).toBeNull();
+        });
+
+        it('authenticates before lookup and masks missing organizations from non-platform callers', async () => {
+          await expect(remove(randomUUID())).rejects.toMatchObject({
+            status: 401,
+          });
+          await expect(remove(regularId, randomUUID())).rejects.toMatchObject({
+            status: 403,
+          });
+          await grantPlatformDelete();
+          await expect(remove(superId, randomUUID())).rejects.toMatchObject({
+            status: 404,
+          });
+          await db.user.update({
+            where: { id: regularId },
+            data: { deletedAt: new Date() },
+          });
+          await expect(remove()).rejects.toMatchObject({ status: 401 });
+        });
+
+        it('allows owner account deletion after all owned organizations are deleted', async () => {
+          await remove();
+          await expect(deleteAs(regularId, regularId)).resolves.toBeUndefined();
+        });
+
+        it('makes concurrent and repeated authorized deletion idempotent', async () => {
+          await Promise.all([remove(), remove()]);
+          const original = await db.organization.findUniqueOrThrow({
+            where: { id: organizationId },
+          });
+          await remove();
+          expect(
+            (
+              await db.organization.findUniqueOrThrow({
+                where: { id: organizationId },
+              })
+            ).deletedAt,
+          ).toEqual(original.deletedAt);
+        });
+
+        it('exposes owner-or-platform deletion without requiring either permission decorator alone', async () => {
+          const response = await new OrganizationsController(deletion()).delete(
+            regularId,
+            organizationId,
+          );
+          expect(response).toBeUndefined();
+          expect(
+            new Reflector().get(
+              'requiredOrganizationPermissions',
+              Reflect.get(OrganizationsController.prototype, 'delete'),
+            ),
+          ).toBeUndefined();
+        });
+
+        it('serializes owner deletion against ownership transfer and rechecks the winning ownership', async () => {
+          let reached = 0;
+          let release!: () => void;
+          const barrier = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          const hook: Hook = (manager) =>
+            new Proxy(manager, {
+              get(target, property) {
+                if (property !== 'organization')
+                  return Reflect.get(target, property);
+                return new Proxy(target.organization, {
+                  get(delegate, method) {
+                    if (method !== 'update')
+                      return Reflect.get(delegate, method);
+                    return async (args: Prisma.OrganizationUpdateArgs) => {
+                      if (++reached === 2) release();
+                      if (reached <= 2) await barrier;
+                      return delegate.update(args);
+                    };
+                  },
+                });
+              },
+            });
+          const results = await Promise.allSettled([
+            deletion(hook).deleteForActor(regularId, organizationId),
+            new OrganizationOwnershipService(host(hook)).transferForActor(
+              regularId,
+              organizationId,
+              membershipId,
+            ),
+          ]);
+          expect(
+            results.filter((result) => result.status === 'fulfilled'),
+          ).toHaveLength(1);
+          expect(
+            results.find((result) => result.status === 'rejected'),
+          ).toMatchObject({ reason: { status: 403 } });
+          const organization = await db.organization.findUniqueOrThrow({
+            where: { id: organizationId },
+          });
+          if (organization.deletedAt)
+            expect(organization.ownerId).toBe(regularId);
+          else expect(organization.ownerId).toBe(adminId);
+        });
+      });
+
       describe('Ownership transfer', () => {
         const host = (hook?: Hook) =>
           ({
