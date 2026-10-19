@@ -127,11 +127,11 @@ export class OrganizationRolesService {
 
     return this.prisma.serializableTransaction(async (manager) => {
       await this.authorize(manager, actorId, organizationId, 'update');
-      const role = await this.findEditableRole(manager, organizationId, roleId);
+      const role = await this.findCustomRole(manager, organizationId, roleId);
       const currentPermissions = role.rolePermissions.map(
         ({ permission }) => permission,
       );
-      await this.assertCanEditRole(
+      await this.assertCanManageRole(
         manager,
         actorId,
         organizationId,
@@ -170,6 +170,34 @@ export class OrganizationRolesService {
         select: roleDetails,
       });
       return { ...updated, isBuiltIn: false, permissions };
+    });
+  }
+
+  async deleteForActor(
+    actorId: string,
+    organizationId: string,
+    roleId: string,
+  ): Promise<void> {
+    await this.prisma.serializableTransaction(async (manager) => {
+      await this.authorize(manager, actorId, organizationId, 'delete');
+      const role = await this.findCustomRole(
+        manager,
+        organizationId,
+        roleId,
+        true,
+      );
+      await this.assertCanManageRole(
+        manager,
+        actorId,
+        organizationId,
+        role.rolePermissions.map(({ permission }) => permission),
+      );
+      if (role.deletedAt) return;
+
+      await manager.role.update({
+        where: { id: role.id, organizationId },
+        data: { deletedAt: new Date() },
+      });
     });
   }
 
@@ -265,21 +293,23 @@ export class OrganizationRolesService {
     return input;
   }
 
-  private async findEditableRole(
+  private async findCustomRole(
     manager: Prisma.TransactionClient,
     organizationId: string,
     roleId: string,
+    includeDeleted = false,
   ) {
     const role = await manager.role.findFirst({
       where: {
         id: roleId,
         organizationId,
         isSystem: false,
-        deletedAt: null,
+        ...(includeDeleted ? {} : { deletedAt: null }),
       },
       select: {
         id: true,
         name: true,
+        deletedAt: true,
         rolePermissions: {
           where: {
             deletedAt: null,
@@ -295,12 +325,12 @@ export class OrganizationRolesService {
     });
     if (!role) throw new NotFoundException('Organization role not found');
     if (['OWNER', 'ADMIN', 'MEMBER'].includes(role.name.toUpperCase())) {
-      throw new ForbiddenException('Built-in roles cannot be edited');
+      throw new ForbiddenException('Built-in roles cannot be modified');
     }
     return role;
   }
 
-  private async assertCanEditRole(
+  private async assertCanManageRole(
     manager: Prisma.TransactionClient,
     actorId: string,
     organizationId: string,
@@ -314,7 +344,7 @@ export class OrganizationRolesService {
     });
     if (organization.ownerId === actorId) return;
 
-    // An editor cannot rename or strip a role carrying powers they do not hold.
+    // Managing a role requires authority over its current grants, including deletion.
     const withinAuthority =
       permissions.length === 0 ||
       (await this.permissions.hasOrganizationPermissions(
@@ -325,7 +355,7 @@ export class OrganizationRolesService {
       ));
     if (!permissions.every(isCatalogPermission) || !withinAuthority) {
       throw new ForbiddenException(
-        'Cannot edit a role beyond your organization authority',
+        'Cannot manage a role beyond your organization authority',
       );
     }
   }

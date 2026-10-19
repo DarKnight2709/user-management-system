@@ -515,6 +515,180 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
             new PermissionsService(db as unknown as PrismaService),
           );
 
+        describe('Custom role deletion', () => {
+          const permission = (resource: string, action: string) =>
+            db.permission.findUniqueOrThrow({
+              where: { action_resource: { resource, action } },
+            });
+          const custom = async (permissionIds: string[] = []) =>
+            roles().createForActor(regularId, organizationId, {
+              name: 'REMOVABLE',
+              permissionIds,
+            });
+          const remove = (id: string, actorId = regularId) =>
+            roles().deleteForActor(actorId, organizationId, id);
+
+          it('soft-deletes the role, preserves history and removes its effective grants', async () => {
+            const invite = await permission('ORGANIZATION_MEMBER', 'invite');
+            const role = await custom([invite.id]);
+            await db.memberRole.create({
+              data: { organizationMemberId: membershipId, roleId: role.id },
+            });
+            const permissions = new PermissionsService(
+              db as unknown as PrismaService,
+            );
+            expect(
+              await permissions.hasOrganizationPermissions(
+                adminId,
+                organizationId,
+                [invite],
+              ),
+            ).toBe(true);
+            await remove(role.id);
+            expect(
+              await db.role.findUniqueOrThrow({ where: { id: role.id } }),
+            ).toMatchObject({ deletedAt: expect.any(Date) });
+            expect(
+              await db.rolePermission.count({
+                where: { roleId: role.id, deletedAt: null },
+              }),
+            ).toBe(1);
+            expect(
+              await db.memberRole.count({
+                where: { roleId: role.id, deletedAt: null },
+              }),
+            ).toBe(1);
+            expect(
+              await permissions.hasOrganizationPermissions(
+                adminId,
+                organizationId,
+                [invite],
+              ),
+            ).toBe(false);
+            expect(
+              (
+                await organizations().currentPermissions(
+                  adminId,
+                  organizationId,
+                )
+              ).some((p) => p.id === invite.id),
+            ).toBe(false);
+            expect(
+              (
+                await roles().listForActor(regularId, organizationId, {})
+              ).items.some((item) => item.id === role.id),
+            ).toBe(false);
+          });
+
+          it('denies missing delete permission without platform bypass', async () => {
+            const role = await custom();
+            for (const actor of [adminId, superId])
+              await expect(remove(role.id, actor)).rejects.toMatchObject({
+                status: 403,
+              });
+          });
+
+          it.each(['ADMIN', 'MEMBER', 'OWNER'])(
+            'protects the built-in %s role',
+            async (name) => {
+              const role =
+                name === 'OWNER'
+                  ? await db.role.create({ data: { organizationId, name } })
+                  : await db.role.findFirstOrThrow({
+                      where: { organizationId, name },
+                    });
+              await expect(remove(role.id)).rejects.toMatchObject({
+                status: 403,
+              });
+              expect(
+                (await db.role.findUniqueOrThrow({ where: { id: role.id } }))
+                  .deletedAt,
+              ).toBeNull();
+            },
+          );
+
+          it('scopes target lookup and preserves role-name reservation after deletion', async () => {
+            const role = await custom();
+            const other = await organizations().create(regularId, {
+              name: 'Other',
+              slug: `role-delete-${randomUUID()}`,
+            });
+            await expect(
+              roles().deleteForActor(regularId, other.id, role.id),
+            ).rejects.toMatchObject({ status: 404 });
+            await expect(remove(randomUUID())).rejects.toMatchObject({
+              status: 404,
+            });
+            await remove(role.id);
+            await expect(custom()).rejects.toMatchObject({ status: 409 });
+          });
+
+          it('checks current grants before allowing deletion by non-owners', async () => {
+            const canDelete = await permission('ORGANIZATION_ROLE', 'delete');
+            const invite = await permission('ORGANIZATION_MEMBER', 'invite');
+            await db.rolePermission.create({
+              data: { roleId, permissionId: canDelete.id },
+            });
+            const role = await custom([invite.id]);
+            await expect(remove(role.id, adminId)).rejects.toMatchObject({
+              status: 403,
+            });
+            await db.rolePermission.create({
+              data: { roleId, permissionId: invite.id },
+            });
+            await expect(remove(role.id, adminId)).resolves.toBeUndefined();
+          });
+
+          it('makes repeated and concurrent authorized deletes idempotent', async () => {
+            const role = await custom();
+            await Promise.all([remove(role.id), remove(role.id)]);
+            const first = await db.role.findUniqueOrThrow({
+              where: { id: role.id },
+            });
+            await remove(role.id);
+            expect(
+              (await db.role.findUniqueOrThrow({ where: { id: role.id } }))
+                .deletedAt,
+            ).toEqual(first.deletedAt);
+          });
+
+          it('does not resurrect a role during concurrent editing and deletion', async () => {
+            const role = await custom();
+            const [deleted, edited] = await Promise.allSettled([
+              remove(role.id),
+              roles().updateForActor(regularId, organizationId, role.id, {
+                name: 'RENAMED',
+              }),
+            ]);
+            expect(deleted.status).toBe('fulfilled');
+            if (edited.status === 'rejected')
+              expect(edited.reason).toMatchObject({ status: 404 });
+            expect(
+              (await db.role.findUniqueOrThrow({ where: { id: role.id } }))
+                .deletedAt,
+            ).toBeInstanceOf(Date);
+          });
+
+          it('requires current authorization even when the target is already deleted', async () => {
+            const role = await custom();
+            await remove(role.id);
+            await db.organization.update({
+              where: { id: organizationId },
+              data: { isActive: false },
+            });
+            await expect(remove(role.id)).rejects.toMatchObject({
+              status: 403,
+            });
+            await db.user.update({
+              where: { id: regularId },
+              data: { deletedAt: new Date() },
+            });
+            await expect(remove(role.id)).rejects.toMatchObject({
+              status: 401,
+            });
+          });
+        });
+
         describe('Custom role updates', () => {
           const permission = (resource: string, action: string) =>
             db.permission.findUniqueOrThrow({

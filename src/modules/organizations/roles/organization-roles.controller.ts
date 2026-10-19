@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   ParseUUIDPipe,
@@ -25,6 +27,21 @@ import { UpdateOrganizationRoleDto } from './dto/update-organization-role.dto.js
 })
 export class OrganizationRolesController {
   constructor(private readonly roles: OrganizationRolesService) {}
+
+  @Delete(':roleId')
+  @HttpCode(204)
+  @RequireOrganizationPermissions({
+    resource: 'ORGANIZATION_ROLE',
+    action: 'delete',
+  })
+  @ApiOperation({ summary: 'Soft-delete a custom organization role' })
+  async delete(
+    @CurrentUser('id') actorId: string,
+    @Param('organizationId', ParseUUIDPipe) organizationId: string,
+    @Param('roleId', ParseUUIDPipe) roleId: string,
+  ): Promise<void> {
+    await this.roles.deleteForActor(actorId, organizationId, roleId);
+  }
 
   @Patch(':roleId')
   @RequireOrganizationPermissions({

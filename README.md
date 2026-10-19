@@ -494,8 +494,9 @@ other members. No OWNER role is needed. Business rules and platform permissions
 still apply independently.
 Organization creation, reading/listing, name updates, member listing/removal,
 invitations, and initial ADMIN/MEMBER provisioning are implemented. Organization
-deletion, assignment validation, custom-role management, and safe ownership
-transfer remain to be implemented.
+deletion, role assignment/revocation safeguards, and safe ownership transfer
+remain to be implemented. Custom role listing, creation, editing and deletion
+are implemented.
 
 ### Your organization permissions
 
@@ -542,7 +543,16 @@ hold every active permission already on the target role as well as each requeste
 permission; they cannot rename or strip stronger roles. Role changes and grant
 revocation/restoration are atomic. Revoked links are retained and restored only
 when explicitly requested. Existing assignees use changed permissions on their
-next authorization check. Deletion and assignment/revocation remain unimplemented.
+next authorization check.
+
+`DELETE /organizations/:organizationId/roles/:roleId` requires ORGANIZATION_ROLE
+delete and authority over the role's current active grants. Only custom roles in
+the target organization can be deleted; ADMIN/MEMBER/legacy OWNER are protected.
+The service soft-deletes the role in a serializable transaction, retaining role
+permission links and member assignments as history. Subsequent authorization and
+permission-list requests ignore its grants. Authorized repeats return 204 without
+changing the original deletion time; current authorization is still required.
+Deleted role names remain reserved. Assignment/revocation remains unimplemented.
 
 Existing database cleanup for this catalog change is manual: remove organization-role
 links for ORGANIZATION delete and transfer-ownership, remove remaining links before
