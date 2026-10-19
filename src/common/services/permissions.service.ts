@@ -1,12 +1,87 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import type { PlatformPermission } from '../decorators/require-platform-permissions.decorator.js';
 import type { Prisma } from '@/generated/prisma/client.js';
 import type { OrganizationPermission } from '../decorators/require-organization-permissions.decorator.js';
+import { organizationPermissions } from '../constants/organization-permissions.constant.js';
+
+export interface EffectiveOrganizationPermission {
+  id: string;
+  resource: string;
+  action: string;
+}
 
 @Injectable()
 export class PermissionsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getEffectiveOrganizationPermissions(
+    userId: string,
+    organizationId: string,
+    manager: Prisma.TransactionClient = this.prisma,
+  ): Promise<EffectiveOrganizationPermission[]> {
+    const user = await manager.user.findUnique({
+      where: { id: userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!user) throw new UnauthorizedException('Authentication required');
+    const membership = await manager.organizationMember.findFirst({
+      where: {
+        userId,
+        organizationId,
+        status: 'ACTIVE',
+        deletedAt: null,
+        user: { deletedAt: null },
+        organization: { deletedAt: null, isActive: true },
+      },
+      select: { id: true, organization: { select: { ownerId: true } } },
+    });
+    if (!membership) throw new ForbiddenException('Organization access denied');
+
+    const isOwner = membership.organization.ownerId === userId;
+    const permissions: EffectiveOrganizationPermission[] =
+      await manager.permission.findMany({
+        where: {
+          deletedAt: null,
+          OR: organizationPermissions.map(({ resource, action }) => ({
+            resource,
+            action,
+          })),
+          ...(isOwner
+            ? {}
+            : {
+                rolePermissions: {
+                  some: {
+                    deletedAt: null,
+                    role: {
+                      organizationId,
+                      isSystem: false,
+                      deletedAt: null,
+                      name: { not: 'OWNER' },
+                      memberRoles: {
+                        some: {
+                          organizationMemberId: membership.id,
+                          deletedAt: null,
+                        },
+                      },
+                    },
+                  },
+                },
+              }),
+        },
+        select: { id: true, resource: true, action: true },
+        orderBy: [{ resource: 'asc' }, { action: 'asc' }],
+      });
+    return permissions.sort(
+      (a, b) =>
+        a.resource.localeCompare(b.resource) ||
+        a.action.localeCompare(b.action),
+    );
+  }
 
   async hasOrganizationPermissions(
     userId: string,

@@ -497,6 +497,23 @@ invitations, and initial ADMIN/MEMBER provisioning are implemented. Organization
 deletion, assignment validation, custom-role management, and safe ownership
 transfer remain to be implemented.
 
+### Your organization permissions
+
+`GET /organizations/:organizationId/me/permissions` returns your effective
+organization permissions as an array in the standard response envelope. Each
+entry has a real database permission UUID, resource and action. Owners receive
+only the active organization catalog; ORGANIZATION delete/transfer-ownership are
+not returned, and platform deletion permission IDs are excluded.
+
+No role-read permission is required to inspect your own permissions. The endpoint
+requires an active account, active/nondeleted membership and organization; outsiders
+receive 403 with no platform-admin bypass. Grants are combined and deduplicated
+across active same-organization roles, excluding revoked/system/legacy OWNER roles
+and permissions outside the organization catalog. Responses use Cache-Control: no-store.
+These are UI capabilities, not authority to submit arbitrary grants: create/update
+permissions and delegation checks remain enforced on the server. Owners still need
+explicit ownerId checks in future deletion/ownership-transfer endpoints.
+
 ### Organization role reads
 
 `GET /organizations/:organizationId/roles?page=1&limit=20` lists undeleted local

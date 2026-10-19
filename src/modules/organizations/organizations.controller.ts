@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Patch,
   ParseUUIDPipe,
@@ -21,6 +22,21 @@ import { UpdateOrganizationDto } from './dto/update-organization.dto.js';
 @Controller('organizations')
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
+
+  @Get(':organizationId/me/permissions')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'View your effective permissions in an organization',
+  })
+  currentPermissions(
+    @CurrentUser('id') actorId: string,
+    @Param('organizationId', ParseUUIDPipe) organizationId: string,
+  ) {
+    return this.organizationsService.currentPermissions(
+      actorId,
+      organizationId,
+    );
+  }
 
   @Patch(':organizationId')
   @RequireOrganizationPermissions({

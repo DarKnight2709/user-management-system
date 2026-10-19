@@ -38,6 +38,16 @@ export class OrganizationsService {
     private readonly permissionsService: PermissionsService,
   ) {}
 
+  async currentPermissions(actorId: string, organizationId: string) {
+    return this.prisma.serializableTransaction((manager) =>
+      this.permissionsService.getEffectiveOrganizationPermissions(
+        actorId,
+        organizationId,
+        manager,
+      ),
+    );
+  }
+
   async updateForActor(
     actorId: string,
     organizationId: string,

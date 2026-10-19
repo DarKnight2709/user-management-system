@@ -306,6 +306,199 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         });
         membershipId = member.id;
       });
+      describe('Current organization permissions', () => {
+        const current = (actorId = adminId, orgId = organizationId) =>
+          organizations().currentPermissions(actorId, orgId);
+
+        it('returns real permission IDs without role management permission requirements', async () => {
+          const response = await current();
+          expect(response).toHaveLength(3);
+          expect(response.every((item) => typeof item.id === 'string')).toBe(
+            true,
+          );
+          expect(response.every((item) => item.action === 'read')).toBe(true);
+          const roleRead = await db.permission.findUniqueOrThrow({
+            where: {
+              action_resource: {
+                resource: 'ORGANIZATION_ROLE',
+                action: 'read',
+              },
+            },
+          });
+          await db.rolePermission.updateMany({
+            where: { roleId, permissionId: roleRead.id },
+            data: { deletedAt: new Date() },
+          });
+          await expect(current()).resolves.toHaveLength(2);
+        });
+
+        it('returns only active catalog permissions with real IDs for the owner', async () => {
+          const deletion = await db.permission.create({
+            data: { resource: 'ORGANIZATION', action: 'delete' },
+          });
+          const response = await current(regularId);
+          expect(response).toHaveLength(11);
+          expect(response.every((item) => typeof item.id === 'string')).toBe(
+            true,
+          );
+          expect(
+            response.some(
+              (item) =>
+                item.resource === 'ORGANIZATION' &&
+                ['delete', 'transfer-ownership'].includes(item.action),
+            ),
+          ).toBe(false);
+          expect(response.some((item) => item.id === deletion.id)).toBe(false);
+        });
+
+        it('unions multiple roles without duplicates and excludes malformed scope and legacy owner grants', async () => {
+          const other = await organizations().create(regularId, {
+            name: 'Other',
+            slug: `permissions-${randomUUID()}`,
+          });
+          const foreignAdmin = await db.role.findFirstOrThrow({
+            where: { organizationId: other.id, name: 'ADMIN' },
+          });
+          const localAdmin = await db.role.findFirstOrThrow({
+            where: { organizationId, name: 'ADMIN' },
+          });
+          const legacyOwner = await db.role.create({
+            data: { name: 'OWNER', organizationId },
+          });
+          const remove = await db.permission.findUniqueOrThrow({
+            where: {
+              action_resource: {
+                resource: 'ORGANIZATION_MEMBER',
+                action: 'remove',
+              },
+            },
+          });
+          await db.rolePermission.create({
+            data: { roleId: legacyOwner.id, permissionId: remove.id },
+          });
+          await db.memberRole.createMany({
+            data: [
+              { organizationMemberId: membershipId, roleId: foreignAdmin.id },
+              { organizationMemberId: membershipId, roleId: legacyOwner.id },
+              { organizationMemberId: membershipId, roleId: superRoleId },
+            ],
+          });
+          expect(await current()).toHaveLength(3);
+          await db.memberRole.create({
+            data: { organizationMemberId: membershipId, roleId: localAdmin.id },
+          });
+          const response = await current();
+          expect(response).toHaveLength(6);
+          expect(new Set(response.map((item) => item.id)).size).toBe(6);
+          expect(
+            response.some(
+              (item) => item.id === null || item.resource === 'USER',
+            ),
+          ).toBe(false);
+        });
+
+        it.each(['assignment', 'role', 'grant', 'permission'])(
+          'excludes a revoked %s',
+          async (kind) => {
+            const read = await db.permission.findUniqueOrThrow({
+              where: {
+                action_resource: { resource: 'ORGANIZATION', action: 'read' },
+              },
+            });
+            if (kind === 'assignment')
+              await db.memberRole.updateMany({
+                where: { organizationMemberId: membershipId },
+                data: { deletedAt: new Date() },
+              });
+            if (kind === 'role')
+              await db.role.update({
+                where: { id: roleId },
+                data: { deletedAt: new Date() },
+              });
+            if (kind === 'grant')
+              await db.rolePermission.updateMany({
+                where: { roleId, permissionId: read.id },
+                data: { deletedAt: new Date() },
+              });
+            if (kind === 'permission')
+              await db.permission.update({
+                where: { id: read.id },
+                data: { deletedAt: new Date() },
+              });
+            expect((await current()).some((item) => item.id === read.id)).toBe(
+              false,
+            );
+          },
+        );
+
+        it('allows a roleless active member to read an empty array', async () => {
+          await db.memberRole.deleteMany({
+            where: { organizationMemberId: membershipId },
+          });
+          await expect(current()).resolves.toEqual([]);
+        });
+
+        it('does not return ownership powers from legacy organization grants', async () => {
+          const deletion = await db.permission.create({
+            data: { resource: 'ORGANIZATION', action: 'delete' },
+          });
+          const transfer = await db.permission.create({
+            data: { resource: 'ORGANIZATION', action: 'transfer-ownership' },
+          });
+          await db.rolePermission.createMany({
+            data: [
+              { roleId, permissionId: deletion.id },
+              { roleId, permissionId: transfer.id },
+            ],
+          });
+          expect(await current()).toHaveLength(3);
+        });
+
+        it.each([
+          'membership removed',
+          'membership suspended',
+          'organization inactive',
+          'organization deleted',
+        ])('rejects %s', async (kind) => {
+          if (kind === 'membership removed')
+            await db.organizationMember.update({
+              where: { id: membershipId },
+              data: { deletedAt: new Date() },
+            });
+          if (kind === 'membership suspended')
+            await db.organizationMember.update({
+              where: { id: membershipId },
+              data: { status: 'SUSPENDED' },
+            });
+          if (kind === 'organization inactive')
+            await db.organization.update({
+              where: { id: organizationId },
+              data: { isActive: false },
+            });
+          if (kind === 'organization deleted')
+            await db.organization.update({
+              where: { id: organizationId },
+              data: { deletedAt: new Date() },
+            });
+          await expect(current()).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('denies outsiders and nonexistent organizations without platform bypass', async () => {
+          await expect(current(superId)).rejects.toMatchObject({ status: 403 });
+          await expect(current(adminId, randomUUID())).rejects.toMatchObject({
+            status: 403,
+          });
+          await expect(current(randomUUID())).rejects.toMatchObject({
+            status: 401,
+          });
+          await db.user.update({
+            where: { id: adminId },
+            data: { deletedAt: new Date() },
+          });
+          await expect(current()).rejects.toMatchObject({ status: 401 });
+        });
+      });
+
       describe('Organization role reads', () => {
         const roles = () =>
           new OrganizationRolesService(
