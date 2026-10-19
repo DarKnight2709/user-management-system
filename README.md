@@ -341,11 +341,12 @@ bootstrap credentials:
 npm run prisma:seed:organization-permissions
 ```
 
-This requires `DATABASE_URL` and applied migrations. It upserts 13 permissions
-in one transaction: ORGANIZATION read/update/delete/transfer-ownership,
+This requires `DATABASE_URL` and applied migrations. It upserts 11 permissions
+in one transaction: ORGANIZATION read/update,
 ORGANIZATION_MEMBER read/invite/remove, and ORGANIZATION_ROLE
-create/read/update/delete/assign/revoke. Existing ORGANIZATION delete is shared
-with the platform catalog; authorization scope comes from the role and operation.
+create/read/update/delete/assign/revoke. ORGANIZATION delete belongs to the platform
+admin catalog; organization deletion and ownership transfer use ownership checks,
+not organization role grants.
 Reruns preserve permission IDs and soft-deleted state; they update descriptions
 without restoring revoked permissions. No users, roles, or assignments are created
 or changed. Never run seeds at application startup.
@@ -493,8 +494,93 @@ other members. No OWNER role is needed. Business rules and platform permissions
 still apply independently.
 Organization creation, reading/listing, name updates, member listing/removal,
 invitations, and initial ADMIN/MEMBER provisioning are implemented. Organization
-deletion, assignment validation, custom-role management, and safe ownership
-transfer remain to be implemented.
+deletion and safe ownership transfer remain to be implemented. Organization role
+assignment/revocation is implemented with scope and delegation safeguards. Custom role listing, creation, editing and deletion
+are implemented.
+
+### Your organization permissions
+
+`GET /organizations/:organizationId/me/permissions` returns your effective
+organization permissions as an array in the standard response envelope. Each
+entry has a real database permission UUID, resource and action. Owners receive
+only the active organization catalog; ORGANIZATION delete/transfer-ownership are
+not returned, and platform deletion permission IDs are excluded.
+
+No role-read permission is required to inspect your own permissions. The endpoint
+requires an active account, active/nondeleted membership and organization; outsiders
+receive 403 with no platform-admin bypass. Grants are combined and deduplicated
+across active same-organization roles, excluding revoked/system/legacy OWNER roles
+and permissions outside the organization catalog. Responses use Cache-Control: no-store.
+These are UI capabilities, not authority to submit arbitrary grants: create/update
+permissions and delegation checks remain enforced on the server. Owners still need
+explicit ownerId checks in future deletion/ownership-transfer endpoints.
+
+### Organization role reads
+
+`GET /organizations/:organizationId/roles?page=1&limit=20` lists undeleted local
+roles with active catalog permission grants; built-in ADMIN/MEMBER are identified
+by isBuiltIn. OWNER is represented by ownerId and is not listed as a role.
+`GET /organizations/:organizationId/roles/permissions` lists the active organization
+permission catalog. Both require ORGANIZATION_ROLE read permission (or active
+ownership), with authorization rechecked in the service transaction; platform
+administrators have no bypass. The catalog is shared with the permissions seed
+and excludes platform USER permissions. Viewing a permission does not authorize
+assigning it; owner-only operations and delegation safeguards still apply.
+`POST /organizations/:organizationId/roles` creates a custom role from
+`{ "name": "MODERATOR", "permissionIds": ["<uuid>"] }`. Names are trimmed and
+uppercased, start with a letter, and use at most 50 letters/numbers/underscores.
+OWNER/ADMIN/MEMBER and existing names (including deleted roles) are reserved.
+An empty permission selection is allowed. Creation requires ORGANIZATION_ROLE
+create; each selected permission must be active, in the organization catalog,
+and within the caller's current authority. Organization delete/transfer-ownership
+are excluded from this catalog and rejected as invalid permission selections. Role and permission links
+are created atomically with serializable retries; this does not assign members.
+`PATCH /organizations/:organizationId/roles/:roleId` updates a custom role's name
+and/or replaces its permissionIds. Omitted fields remain unchanged; an empty array
+clears grants. Empty bodies and null fields are rejected. It requires
+ORGANIZATION_ROLE update; built-in roles cannot be edited. Non-owner editors must
+hold every active permission already on the target role as well as each requested
+permission; they cannot rename or strip stronger roles. Role changes and grant
+revocation/restoration are atomic. Revoked links are retained and restored only
+when explicitly requested. Existing assignees use changed permissions on their
+next authorization check.
+
+`DELETE /organizations/:organizationId/roles/:roleId` requires ORGANIZATION_ROLE
+delete and authority over the role's current active grants. Only custom roles in
+the target organization can be deleted; ADMIN/MEMBER/legacy OWNER are protected.
+The service soft-deletes the role in a serializable transaction, retaining role
+permission links and member assignments as history. Subsequent authorization and
+permission-list requests ignore its grants. Authorized repeats return 204 without
+changing the original deletion time; current authorization is still required.
+Deleted role names remain reserved.
+
+### Member role assignment and revocation
+
+`PUT /organizations/:organizationId/members/:memberId/roles/:roleId` assigns a
+role and `DELETE` at the same path revokes that one assignment; both return 204.
+They require ORGANIZATION_ROLE assign/revoke respectively, checked by guard and
+service within a serializable transaction. The target membership and role must be
+active, nondeleted, and in the specified organization; the target user must not be
+deleted. System roles and legacy OWNER roles cannot be used. Only the actual owner
+can assign/revoke ADMIN, even if another member holds all of its permissions.
+Other role changes require authority over all active grants on the role; roles
+containing non-catalog permissions are rejected. Platform admin grants never bypass
+organization access checks. Role assignment changes no ownership.
+
+Assignments are additive: assigning MEMBER does not remove ADMIN. Demotion requires
+explicitly revoking ADMIN. Revocation soft-deletes MemberRole, retaining other roles,
+membership and grant history. Explicit reassignment restores the same record.
+Repeated authorized requests are idempotent; inactive/deleted targets remain invalid.
+Changes are reflected on subsequent permission checks. Assign/revoke and concurrent
+role deletion are covered with isolated PostgreSQL tests. Generalized role restoration,
+ownership transfer and organization deletion remain separate work.
+
+Existing database cleanup for this catalog change is manual: remove organization-role
+links for ORGANIZATION delete and transfer-ownership, remove remaining links before
+deleting the transfer-ownership permission record, and preserve platform deletion
+permission/assignments. Set the retained deletion description to
+"Delete organizations across the application", matching admin.seed.ts. Changing
+the catalog or rerunning the organization seed does not perform this cleanup.
 
 ### Organization member removal
 
