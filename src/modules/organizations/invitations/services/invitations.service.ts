@@ -35,6 +35,12 @@ const summary = {
   sentAt: true,
 } satisfies Prisma.OrganizationInvitationSelect;
 
+type PreviousMembership = {
+  id: string;
+  status: string;
+  deletedAt: Date | null;
+} | null;
+
 @Injectable()
 export class InvitationsService {
   constructor(
@@ -66,7 +72,7 @@ export class InvitationsService {
     }
   }
 
-  private async assertNotMember(
+  private async assertInvitable(
     manager: Prisma.TransactionClient,
     organizationId: string,
     email: string,
@@ -77,18 +83,34 @@ export class InvitationsService {
     });
     if (account?.deletedAt)
       throw new ConflictException('This account cannot be invited');
+    const membership = account
+      ? await manager.organizationMember.findUnique({
+          where: {
+            organizationId_userId: { organizationId, userId: account.id },
+          },
+          select: { id: true, status: true, deletedAt: true },
+        })
+      : null;
     if (
-      account &&
-      (await manager.organizationMember.findUnique({
-        where: {
-          organizationId_userId: { organizationId, userId: account.id },
-        },
-        select: { id: true },
-      }))
-    )
+      membership &&
+      (membership.deletedAt === null || membership.status !== 'ACTIVE')
+    ) {
       throw new ConflictException(
-        'Account already has a membership; invitations cannot restore access',
+        'Account has an existing or suspended membership',
       );
+    }
+    return membership;
+  }
+
+  private assertFreshInvitation(
+    invitation: OrganizationInvitation,
+    previous: PreviousMembership,
+  ): void {
+    if (previous?.deletedAt && invitation.createdAt <= previous.deletedAt) {
+      throw new ConflictException(
+        'Create a new invitation after member removal',
+      );
+    }
   }
 
   private pending(invitation: OrganizationInvitation) {
@@ -132,8 +154,26 @@ export class InvitationsService {
     const invitation = await this.prisma.serializableTransaction(
       async (manager) => {
         await this.authorize(manager, actorId, organizationId);
-        await this.assertNotMember(manager, organizationId, email);
-        const now = new Date();
+        const previous = await this.assertInvitable(
+          manager,
+          organizationId,
+          email,
+        );
+        // A new invitation must be later than the removal, even within the same millisecond.
+        const now = new Date(
+          Math.max(Date.now(), (previous?.deletedAt?.getTime() ?? 0) + 1),
+        );
+        if (previous?.deletedAt) {
+          await manager.organizationInvitation.updateMany({
+            where: {
+              organizationId,
+              email,
+              status: 'PENDING',
+              createdAt: { lte: previous.deletedAt },
+            },
+            data: { status: 'REVOKED', revokedAt: now },
+          });
+        }
         await manager.organizationInvitation.updateMany({
           where: {
             organizationId,
@@ -157,6 +197,7 @@ export class InvitationsService {
             organizationId,
             email,
             tokenHash,
+            createdAt: now,
             invitedById: actorId,
             expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1_000),
             lastRequestedAt: now,
@@ -177,7 +218,12 @@ export class InvitationsService {
         if (!invite) throw new NotFoundException('Invitation not found');
         this.pending(invite);
         this.link(invite);
-        await this.assertNotMember(manager, organizationId, invite.email);
+        const previous = await this.assertInvitable(
+          manager,
+          organizationId,
+          invite.email,
+        );
+        this.assertFreshInvitation(invite, previous);
         this.assertResendAllowed(invite);
 
         return manager.organizationInvitation.update({
@@ -230,6 +276,12 @@ export class InvitationsService {
       });
       if (!invite) throw new NotFoundException('Invitation not found');
       this.pending(invite);
+      const previous = await this.assertInvitable(
+        manager,
+        organizationId,
+        invite.email,
+      );
+      this.assertFreshInvitation(invite, previous);
       return {
         id: invite.id,
         inviteLink: this.link(invite),
@@ -318,7 +370,12 @@ export class InvitationsService {
       });
       if (!organization)
         throw new ConflictException('Organization is unavailable');
-      await this.assertNotMember(manager, organization.id, invitation.email);
+      const previous = await this.assertInvitable(
+        manager,
+        organization.id,
+        invitation.email,
+      );
+      this.assertFreshInvitation(invitation, previous);
       const role = await manager.role.findFirst({
         where: {
           organizationId: organization.id,
@@ -341,16 +398,61 @@ export class InvitationsService {
           acceptedById: user.id,
         },
       });
-      const member = await manager.organizationMember.create({
+      const member = await this.joinAsMember(
+        manager,
+        organization.id,
+        user.id,
+        role.id,
+        previous,
+      );
+      return { organizationId: organization.id, membershipId: member.id };
+    });
+  }
+
+  private async joinAsMember(
+    manager: Prisma.TransactionClient,
+    organizationId: string,
+    userId: string,
+    roleId: string,
+    previous: PreviousMembership,
+  ) {
+    if (!previous) {
+      return manager.organizationMember.create({
         data: {
-          organizationId: organization.id,
-          userId: user.id,
+          organizationId,
+          userId,
           status: 'ACTIVE',
-          memberRoles: { create: { roleId: role.id } },
+          memberRoles: { create: { roleId } },
         },
         select: { id: true },
       });
-      return { organizationId: organization.id, membershipId: member.id };
+    }
+
+    // Retained historical roles must never reactivate when membership is restored.
+    await manager.memberRole.updateMany({
+      where: { organizationMemberId: previous.id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    await manager.memberRole.upsert({
+      where: {
+        organizationMemberId_roleId: {
+          organizationMemberId: previous.id,
+          roleId,
+        },
+      },
+      create: { organizationMemberId: previous.id, roleId },
+      update: { deletedAt: null },
+    });
+    return manager.organizationMember.update({
+      where: {
+        id: previous.id,
+        organizationId,
+        userId,
+        status: 'ACTIVE',
+        deletedAt: previous.deletedAt,
+      },
+      data: { status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
     });
   }
 }

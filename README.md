@@ -129,7 +129,7 @@ flowchart TD
 | **Database**           | [PostgreSQL 17](https://www.postgresql.org/)                     | Relational database engine                 |
 | **ORM**                | [Prisma 7](https://www.prisma.io/)                               | Next-generation Node.js ORM                |
 | **Object Storage**     | [MinIO](https://min.io/) / [AWS S3](https://aws.amazon.com/s3/)  | S3-compatible cloud object storage         |
-| **Authentication**     | [Passport](https://www.passportjs.org/) + [JWT](https://jwt.io/) | Access JWTs and stored refresh sessions                 |
+| **Authentication**     | [Passport](https://www.passportjs.org/) + [JWT](https://jwt.io/) | Access JWTs and stored refresh sessions    |
 | **API Documentation**  | [Swagger / OpenAPI 3.0](https://swagger.io/)                     | Auto-generated interactive API docs        |
 | **Testing**            | [Vitest](https://vitest.dev/)                                    | Vite-powered unit test runner              |
 | **Linter & Formatter** | [Oxlint](https://oxc.rs/) + [Prettier](https://prettier.io/)     | High-performance linter and code formatter |
@@ -652,6 +652,11 @@ authenticated account email. Membership is always provisioned with MEMBER, never
 an arbitrary client-supplied role. The email queue and worker always start;
 frontend URL, invitation secret, Redis host, SMTP host and sender configuration
 are required at startup. Resend/copy-link recovery remains available if sending fails.
+
+Removed ACTIVE members can be invited again with a fresh invitation created after
+removal. Acceptance reuses the membership and activates only MEMBER; historical
+ADMIN/custom-role assignments stay revoked. Active/suspended memberships and
+deleted accounts remain blocked, and old links cannot restore access.
 
 See [invitation setup, API, failure semantics, and verification](src/modules/organizations/invitations/README.md).
 The read-only Bull Board dashboard is available at `/queues` only when validated
