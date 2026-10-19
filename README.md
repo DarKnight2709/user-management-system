@@ -496,6 +496,19 @@ invitations, and initial ADMIN/MEMBER provisioning are implemented. Organization
 deletion, assignment validation, custom-role management, and safe ownership
 transfer remain to be implemented.
 
+### Organization role reads
+
+`GET /organizations/:organizationId/roles?page=1&limit=20` lists undeleted local
+roles with active catalog permission grants; built-in ADMIN/MEMBER are identified
+by isBuiltIn. OWNER is represented by ownerId and is not listed as a role.
+`GET /organizations/:organizationId/roles/permissions` lists the active organization
+permission catalog. Both require ORGANIZATION_ROLE read permission (or active
+ownership), with authorization rechecked in the service transaction; platform
+administrators have no bypass. The catalog is shared with the permissions seed
+and excludes platform USER permissions. Viewing a permission does not authorize
+assigning it; owner-only operations and delegation safeguards still apply.
+Role creation, editing, deletion and assignment/revocation remain unimplemented.
+
 ### Organization member removal
 
 `DELETE /organizations/:organizationId/members/:memberId` requires organization

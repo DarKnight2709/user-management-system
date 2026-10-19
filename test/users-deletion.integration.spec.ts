@@ -1,3 +1,4 @@
+import { OrganizationRolesService } from '../src/modules/organizations/roles/organization-roles.service.js';
 import 'dotenv/config';
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
@@ -305,6 +306,181 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         });
         membershipId = member.id;
       });
+      describe('Organization role reads', () => {
+        const roles = () =>
+          new OrganizationRolesService(
+            {
+              serializableTransaction<T>(
+                operation: (manager: Prisma.TransactionClient) => Promise<T>,
+              ): Promise<T> {
+                return PrismaService.prototype.serializableTransaction.call(
+                  { $transaction: db.$transaction.bind(db) },
+                  operation,
+                ) as Promise<T>;
+              },
+            } as PrismaService,
+            new PermissionsService(db as unknown as PrismaService),
+          );
+
+        it.each(['owner', 'member'])(
+          'lists local roles and active permissions for %s',
+          async (actor) => {
+            const response = await roles().listForActor(
+              actor === 'owner' ? regularId : adminId,
+              organizationId,
+              {},
+            );
+            expect(response).toMatchObject({ total: 2, page: 1, limit: 20 });
+            expect(response.items.map((role) => role.name)).toEqual([
+              'ADMIN',
+              'MEMBER',
+            ]);
+            expect(response.items.every((role) => role.isBuiltIn)).toBe(true);
+            expect(
+              response.items.find((role) => role.name === 'ADMIN')?.permissions,
+            ).toHaveLength(6);
+            expect(
+              response.items.find((role) => role.name === 'MEMBER')
+                ?.permissions,
+            ).toHaveLength(3);
+          },
+        );
+
+        it('excludes platform/unknown permissions and roles from other organizations', async () => {
+          await organizations().create(regularId, {
+            name: 'Other',
+            slug: `roles-${randomUUID()}`,
+          });
+          await db.rolePermission.create({ data: { roleId, permissionId } });
+          const unknown = await db.permission.create({
+            data: { resource: 'ORGANIZATION_ROLE', action: 'unknown' },
+          });
+          await db.rolePermission.create({
+            data: { roleId, permissionId: unknown.id },
+          });
+          const response = await roles().listForActor(adminId, organizationId, {
+            page: 1,
+            limit: 1,
+          });
+          expect(response).toMatchObject({ total: 2, limit: 1 });
+          expect(response.items).toHaveLength(1);
+          const catalog = await roles().catalogForActor(
+            adminId,
+            organizationId,
+          );
+          expect(catalog).toHaveLength(13);
+          expect(
+            catalog.some(
+              (permission) =>
+                permission.resource === 'USER' ||
+                permission.action === 'unknown',
+            ),
+          ).toBe(false);
+          const member = await roles().listForActor(adminId, organizationId, {
+            page: 2,
+            limit: 1,
+          });
+          expect(member.items[0].permissions).toHaveLength(3);
+        });
+
+        it('excludes deleted roles, grants and catalog permissions', async () => {
+          const read = await db.permission.findUniqueOrThrow({
+            where: {
+              action_resource: { action: 'read', resource: 'ORGANIZATION' },
+            },
+          });
+          await db.rolePermission.updateMany({
+            where: { roleId, permissionId: read.id },
+            data: { deletedAt: new Date() },
+          });
+          const invite = await db.permission.findUniqueOrThrow({
+            where: {
+              action_resource: {
+                action: 'invite',
+                resource: 'ORGANIZATION_MEMBER',
+              },
+            },
+          });
+          await db.permission.update({
+            where: { id: invite.id },
+            data: { deletedAt: new Date() },
+          });
+          const custom = await db.role.create({
+            data: { organizationId, name: 'ARCHIVED', deletedAt: new Date() },
+          });
+          const response = await roles().listForActor(
+            adminId,
+            organizationId,
+            {},
+          );
+          expect(response.total).toBe(2);
+          expect(response.items.some((role) => role.id === custom.id)).toBe(
+            false,
+          );
+          expect(
+            response.items
+              .find((role) => role.name === 'MEMBER')
+              ?.permissions.some((permission) => permission.id === read.id),
+          ).toBe(false);
+          expect(
+            (await roles().catalogForActor(adminId, organizationId)).some(
+              (permission) => permission.id === invite.id,
+            ),
+          ).toBe(false);
+        });
+
+        it('denies platform administrators and revoked organization read permission', async () => {
+          await expect(
+            roles().listForActor(superId, organizationId, {}),
+          ).rejects.toMatchObject({ status: 403 });
+          const read = await db.permission.findUniqueOrThrow({
+            where: {
+              action_resource: {
+                action: 'read',
+                resource: 'ORGANIZATION_ROLE',
+              },
+            },
+          });
+          await db.rolePermission.updateMany({
+            where: { roleId, permissionId: read.id },
+            data: { deletedAt: new Date() },
+          });
+          await expect(
+            roles().catalogForActor(adminId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('denies removed membership, inactive organization and deleted actor', async () => {
+          await db.organizationMember.update({
+            where: { id: membershipId },
+            data: { deletedAt: new Date() },
+          });
+          await expect(
+            roles().catalogForActor(adminId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+          await db.organization.update({
+            where: { id: organizationId },
+            data: { isActive: false },
+          });
+          await expect(
+            roles().listForActor(regularId, organizationId, {}),
+          ).rejects.toMatchObject({ status: 403 });
+          await db.user.update({
+            where: { id: regularId },
+            data: { deletedAt: new Date() },
+          });
+          await expect(
+            roles().listForActor(regularId, organizationId, {}),
+          ).rejects.toMatchObject({ status: 401 });
+        });
+
+        it('validates pagination even for direct service calls', async () => {
+          await expect(
+            roles().listForActor(adminId, organizationId, { limit: 101 }),
+          ).rejects.toMatchObject({ status: 422 });
+        });
+      });
+
       describe('Member removal', () => {
         const remove = (actorId = regularId, targetId = membershipId) =>
           members().removeForActor(actorId, organizationId, targetId);
