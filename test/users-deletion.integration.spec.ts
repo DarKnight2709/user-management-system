@@ -2778,7 +2778,17 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
             adminId,
             organizationId,
           );
-          expect(catalog).toHaveLength(11);
+          expect(catalog).toHaveLength(3);
+          const effective = await organizations().currentPermissions(
+            adminId,
+            organizationId,
+          );
+          expect(catalog.map(({ id }) => id).sort()).toEqual(
+            effective.map(({ id }) => id).sort(),
+          );
+          expect(
+            catalog.every((permission) => 'description' in permission),
+          ).toBe(true);
           expect(
             catalog.some(
               (permission) =>

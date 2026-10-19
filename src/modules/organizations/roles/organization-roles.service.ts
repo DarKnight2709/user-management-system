@@ -259,8 +259,15 @@ export class OrganizationRolesService {
   async catalogForActor(actorId: string, organizationId: string) {
     return this.prisma.serializableTransaction(async (manager) => {
       await this.authorize(manager, actorId, organizationId);
+      const grantable =
+        await this.permissions.getEffectiveOrganizationPermissions(
+          actorId,
+          organizationId,
+          manager,
+        );
       return manager.permission.findMany({
         where: {
+          id: { in: grantable.map(({ id }) => id) },
           deletedAt: null,
           OR: catalogFilter,
         },
