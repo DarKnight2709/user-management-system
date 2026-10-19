@@ -314,6 +314,122 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         });
         membershipId = member.id;
       });
+      describe('Organization self-leave', () => {
+        it('lets a member leave without remove permission and retains roles and account', async () => {
+          const assignments = await db.memberRole.count({
+            where: { organizationMemberId: membershipId },
+          });
+          await members().leaveForActor(adminId, organizationId);
+          const first = await db.organizationMember.findUniqueOrThrow({
+            where: { id: membershipId },
+          });
+          expect(first.deletedAt).toBeInstanceOf(Date);
+          await members().leaveForActor(adminId, organizationId);
+          const repeated = await db.organizationMember.findUniqueOrThrow({
+            where: { id: membershipId },
+          });
+          expect(repeated.deletedAt).toEqual(first.deletedAt);
+          expect(
+            await db.memberRole.count({
+              where: { organizationMemberId: membershipId },
+            }),
+          ).toBe(assignments);
+          expect(
+            (await db.user.findUniqueOrThrow({ where: { id: adminId } }))
+              .deletedAt,
+          ).toBeNull();
+          await expect(
+            organizations().currentPermissions(adminId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('blocks the owner and platform outsiders', async () => {
+          await expect(
+            members().leaveForActor(regularId, organizationId),
+          ).rejects.toMatchObject({ status: 409 });
+          await expect(
+            members().leaveForActor(superId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+          await expect(
+            members().leaveForActor(adminId, randomUUID()),
+          ).rejects.toMatchObject({ status: 403 });
+        });
+
+        it('rejects suspended memberships, inactive organizations and deleted accounts', async () => {
+          await db.organizationMember.update({
+            where: { id: membershipId },
+            data: { status: 'SUSPENDED' },
+          });
+          await expect(
+            members().leaveForActor(adminId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+          await db.organizationMember.update({
+            where: { id: membershipId },
+            data: { status: 'ACTIVE' },
+          });
+          await db.organization.update({
+            where: { id: organizationId },
+            data: { isActive: false },
+          });
+          await expect(
+            members().leaveForActor(adminId, organizationId),
+          ).rejects.toMatchObject({ status: 403 });
+          await db.user.update({
+            where: { id: adminId },
+            data: { deletedAt: new Date() },
+          });
+          await expect(
+            members().leaveForActor(adminId, organizationId),
+          ).rejects.toMatchObject({ status: 401 });
+        });
+
+        it('preserves active owner membership when leaving races with ownership transfer', async () => {
+          const ownership = new OrganizationOwnershipService({
+            serializableTransaction<T>(
+              operation: (manager: Prisma.TransactionClient) => Promise<T>,
+            ): Promise<T> {
+              return PrismaService.prototype.serializableTransaction.call(
+                { $transaction: db.$transaction.bind(db) },
+                operation,
+              ) as Promise<T>;
+            },
+          } as PrismaService);
+          const results = await Promise.allSettled([
+            members().leaveForActor(adminId, organizationId),
+            ownership.transferForActor(regularId, organizationId, membershipId),
+          ]);
+          expect(
+            results.filter(({ status }) => status === 'fulfilled'),
+          ).toHaveLength(1);
+          const organization = await db.organization.findUniqueOrThrow({
+            where: { id: organizationId },
+          });
+          const owner = await db.organizationMember.findUniqueOrThrow({
+            where: {
+              organizationId_userId: {
+                organizationId,
+                userId: organization.ownerId,
+              },
+            },
+          });
+          expect(owner).toMatchObject({ status: 'ACTIVE', deletedAt: null });
+        });
+
+        it('handles concurrent leave requests idempotently', async () => {
+          await Promise.all([
+            members().leaveForActor(adminId, organizationId),
+            members().leaveForActor(adminId, organizationId),
+          ]);
+          expect(
+            (
+              await db.organizationMember.findUniqueOrThrow({
+                where: { id: membershipId },
+              })
+            ).deletedAt,
+          ).toBeInstanceOf(Date);
+        });
+      });
+
       describe('Removed member reinvitation', () => {
         const links = new InvitationLinksService(
           new ConfigService({

@@ -644,6 +644,17 @@ bounded retries. Concurrent repeated removal is verified in a disposable local
 PostgreSQL schema. Future role/ownership mutations must coordinate these rules.
 Restoration, leaving an organization and audit recording remain separate work.
 
+### Leave an organization
+
+`POST /organizations/:organizationId/members/leave` returns 204 and uses the
+authenticated identity, with no remove permission or target member ID required.
+Active non-owner members can leave an active, undeleted organization. Owners must
+transfer ownership first (409). Outsiders and suspended memberships receive 403;
+deleted accounts receive 401. Repeated authorized requests return 204.
+The serializable transaction soft-deletes only the membership, retaining the
+account, sessions and role history. Organization access stops immediately. Rejoining
+requires a fresh invitation and restores only MEMBER access.
+
 ### Organization invitations
 
 Invitations now use one database table, with BullMQ email jobs and explicit
