@@ -341,11 +341,12 @@ bootstrap credentials:
 npm run prisma:seed:organization-permissions
 ```
 
-This requires `DATABASE_URL` and applied migrations. It upserts 13 permissions
-in one transaction: ORGANIZATION read/update/delete/transfer-ownership,
+This requires `DATABASE_URL` and applied migrations. It upserts 11 permissions
+in one transaction: ORGANIZATION read/update,
 ORGANIZATION_MEMBER read/invite/remove, and ORGANIZATION_ROLE
-create/read/update/delete/assign/revoke. Existing ORGANIZATION delete is shared
-with the platform catalog; authorization scope comes from the role and operation.
+create/read/update/delete/assign/revoke. ORGANIZATION delete belongs to the platform
+admin catalog; organization deletion and ownership transfer use ownership checks,
+not organization role grants.
 Reruns preserve permission IDs and soft-deleted state; they update descriptions
 without restoring revoked permissions. No users, roles, or assignments are created
 or changed. Never run seeds at application startup.
@@ -507,7 +508,23 @@ ownership), with authorization rechecked in the service transaction; platform
 administrators have no bypass. The catalog is shared with the permissions seed
 and excludes platform USER permissions. Viewing a permission does not authorize
 assigning it; owner-only operations and delegation safeguards still apply.
-Role creation, editing, deletion and assignment/revocation remain unimplemented.
+`POST /organizations/:organizationId/roles` creates a custom role from
+`{ "name": "MODERATOR", "permissionIds": ["<uuid>"] }`. Names are trimmed and
+uppercased, start with a letter, and use at most 50 letters/numbers/underscores.
+OWNER/ADMIN/MEMBER and existing names (including deleted roles) are reserved.
+An empty permission selection is allowed. Creation requires ORGANIZATION_ROLE
+create; each selected permission must be active, in the organization catalog,
+and within the caller's current authority. Organization delete/transfer-ownership
+are excluded from this catalog and rejected as invalid permission selections. Role and permission links
+are created atomically with serializable retries; this does not assign members.
+Role editing, deletion and assignment/revocation remain unimplemented.
+
+Existing database cleanup for this catalog change is manual: remove organization-role
+links for ORGANIZATION delete and transfer-ownership, remove remaining links before
+deleting the transfer-ownership permission record, and preserve platform deletion
+permission/assignments. Set the retained deletion description to
+"Delete organizations across the application", matching admin.seed.ts. Changing
+the catalog or rerunning the organization seed does not perform this cleanup.
 
 ### Organization member removal
 

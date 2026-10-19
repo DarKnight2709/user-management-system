@@ -10,16 +10,6 @@ export const organizationPermissions = [
     description: 'Update organization details',
   },
   {
-    resource: 'ORGANIZATION',
-    action: 'delete',
-    description: 'Delete organizations within the authorized scope',
-  },
-  {
-    resource: 'ORGANIZATION',
-    action: 'transfer-ownership',
-    description: 'Transfer organization ownership',
-  },
-  {
     resource: 'ORGANIZATION_MEMBER',
     action: 'read',
     description: 'View organization members',

@@ -322,6 +322,236 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
             new PermissionsService(db as unknown as PrismaService),
           );
 
+        describe('Custom role creation', () => {
+          const permission = (resource: string, action: string) =>
+            db.permission.findUniqueOrThrow({
+              where: { action_resource: { resource, action } },
+            });
+          const create = (
+            actorId = regularId,
+            name = 'MODERATOR',
+            permissionIds: string[] = [],
+          ) =>
+            roles().createForActor(actorId, organizationId, {
+              name,
+              permissionIds,
+            });
+
+          it('creates a scoped custom role and permission links atomically without assignments', async () => {
+            const read = await permission('ORGANIZATION_MEMBER', 'read');
+            const result = await create(regularId, ' moderator ', [read.id]);
+            expect(result).toMatchObject({
+              name: 'MODERATOR',
+              isBuiltIn: false,
+              permissions: [{ id: read.id }],
+            });
+            expect(
+              await db.role.findUniqueOrThrow({ where: { id: result.id } }),
+            ).toMatchObject({ organizationId, isSystem: false });
+            expect(
+              await db.rolePermission.count({ where: { roleId: result.id } }),
+            ).toBe(1);
+            expect(
+              await db.memberRole.count({ where: { roleId: result.id } }),
+            ).toBe(0);
+          });
+
+          it('denies ordinary members, built-in admins and platform admins without create permission', async () => {
+            for (const actor of [adminId, superId])
+              await expect(create(actor)).rejects.toMatchObject({
+                status: 403,
+              });
+            const admin = await db.role.findFirstOrThrow({
+              where: { organizationId, name: 'ADMIN' },
+            });
+            await db.memberRole.create({
+              data: { organizationMemberId: membershipId, roleId: admin.id },
+            });
+            await expect(create(adminId)).rejects.toMatchObject({
+              status: 403,
+            });
+          });
+
+          it('enforces delegation against current permissions', async () => {
+            const canCreate = await permission('ORGANIZATION_ROLE', 'create');
+            await db.rolePermission.create({
+              data: { roleId, permissionId: canCreate.id },
+            });
+            const read = await permission('ORGANIZATION_MEMBER', 'read');
+            await expect(
+              create(adminId, 'READER', [read.id]),
+            ).resolves.toMatchObject({ name: 'READER' });
+            const remove = await permission('ORGANIZATION_MEMBER', 'remove');
+            await expect(
+              create(adminId, 'ESCALATION', [remove.id]),
+            ).rejects.toMatchObject({ status: 403 });
+            expect(
+              await db.role.count({
+                where: { organizationId, name: 'ESCALATION' },
+              }),
+            ).toBe(0);
+          });
+
+          it.each(['delete', 'transfer-ownership'])(
+            'rejects legacy organization %s outside the role catalog',
+            async (action) => {
+              const selected = await db.permission.create({
+                data: {
+                  resource: 'ORGANIZATION',
+                  action,
+                  description: 'Legacy permission',
+                },
+              });
+              await expect(
+                create(regularId, 'OWNER_POWER', [selected.id]),
+              ).rejects.toMatchObject({ status: 422 });
+            },
+          );
+
+          it('keeps platform deletion separate and hides legacy owner-only grants', async () => {
+            const deletion = await db.permission.create({
+              data: {
+                resource: 'ORGANIZATION',
+                action: 'delete',
+                description: 'Delete organizations across the application',
+              },
+            });
+            const transfer = await db.permission.create({
+              data: { resource: 'ORGANIZATION', action: 'transfer-ownership' },
+            });
+            await db.rolePermission.createMany({
+              data: [
+                { roleId, permissionId: deletion.id },
+                { roleId, permissionId: transfer.id },
+                { roleId: superRoleId, permissionId: deletion.id },
+              ],
+            });
+            await seedOrganizationPermissions(db);
+            const catalog = await roles().catalogForActor(
+              regularId,
+              organizationId,
+            );
+            expect(catalog).toHaveLength(11);
+            expect(
+              catalog.some((p) => [deletion.id, transfer.id].includes(p.id)),
+            ).toBe(false);
+            const listed = await roles().listForActor(
+              regularId,
+              organizationId,
+              {},
+            );
+            expect(
+              listed.items
+                .flatMap((role) => role.permissions)
+                .some((p) => [deletion.id, transfer.id].includes(p.id)),
+            ).toBe(false);
+            expect(
+              (
+                await db.permission.findUniqueOrThrow({
+                  where: { id: deletion.id },
+                })
+              ).description,
+            ).toBe('Delete organizations across the application');
+            expect(
+              await new PermissionsService(
+                db as unknown as PrismaService,
+              ).hasPlatformPermission(superId, {
+                resource: 'ORGANIZATION',
+                action: 'delete',
+              }),
+            ).toBe(true);
+          });
+
+          it('rejects inactive, unknown and platform permissions without partial creation', async () => {
+            const read = await permission('ORGANIZATION_MEMBER', 'read');
+            await db.permission.update({
+              where: { id: read.id },
+              data: { deletedAt: new Date() },
+            });
+            for (const id of [read.id, randomUUID(), permissionId]) {
+              await expect(
+                create(regularId, 'INVALID', [id]),
+              ).rejects.toMatchObject({ status: 422 });
+            }
+            expect(
+              await db.role.count({
+                where: { organizationId, name: 'INVALID' },
+              }),
+            ).toBe(0);
+          });
+
+          it('reserves built-in and deleted names and permits the same name in another organization', async () => {
+            for (const name of [' admin ', 'MEMBER', 'owner'])
+              await expect(create(regularId, name)).rejects.toMatchObject({
+                status: 422,
+              });
+            const existing = await create();
+            await db.role.update({
+              where: { id: existing.id },
+              data: { deletedAt: new Date() },
+            });
+            await expect(create(regularId, 'moderator')).rejects.toMatchObject({
+              status: 409,
+            });
+            const other = await organizations().create(regularId, {
+              name: 'Other',
+              slug: `role-create-${randomUUID()}`,
+            });
+            await expect(
+              roles().createForActor(regularId, other.id, {
+                name: 'MODERATOR',
+                permissionIds: [],
+              }),
+            ).resolves.toMatchObject({ name: 'MODERATOR' });
+          });
+
+          it('creates exactly one role under concurrent duplicate requests', async () => {
+            const results = await Promise.allSettled([create(), create()]);
+            expect(
+              results.filter((result) => result.status === 'fulfilled'),
+            ).toHaveLength(1);
+            const failed = results.find(
+              (result) => result.status === 'rejected',
+            );
+            expect(
+              failed?.status === 'rejected' && failed.reason,
+            ).toMatchObject({ status: 409 });
+            expect(
+              await db.role.count({
+                where: { organizationId, name: 'MODERATOR' },
+              }),
+            ).toBe(1);
+          });
+
+          it('rejects removed owners, inactive organizations and deleted accounts', async () => {
+            const ownerMembership =
+              await db.organizationMember.findUniqueOrThrow({
+                where: {
+                  organizationId_userId: { organizationId, userId: regularId },
+                },
+              });
+            await db.organizationMember.update({
+              where: { id: ownerMembership.id },
+              data: { status: 'SUSPENDED' },
+            });
+            await expect(create()).rejects.toMatchObject({ status: 403 });
+            await db.organizationMember.update({
+              where: { id: ownerMembership.id },
+              data: { status: 'ACTIVE' },
+            });
+            await db.organization.update({
+              where: { id: organizationId },
+              data: { isActive: false },
+            });
+            await expect(create()).rejects.toMatchObject({ status: 403 });
+            await db.user.update({
+              where: { id: regularId },
+              data: { deletedAt: new Date() },
+            });
+            await expect(create()).rejects.toMatchObject({ status: 401 });
+          });
+        });
+
         it.each(['owner', 'member'])(
           'lists local roles and active permissions for %s',
           async (actor) => {
@@ -368,7 +598,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
             adminId,
             organizationId,
           );
-          expect(catalog).toHaveLength(13);
+          expect(catalog).toHaveLength(11);
           expect(
             catalog.some(
               (permission) =>
