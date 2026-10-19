@@ -534,7 +534,15 @@ create; each selected permission must be active, in the organization catalog,
 and within the caller's current authority. Organization delete/transfer-ownership
 are excluded from this catalog and rejected as invalid permission selections. Role and permission links
 are created atomically with serializable retries; this does not assign members.
-Role editing, deletion and assignment/revocation remain unimplemented.
+`PATCH /organizations/:organizationId/roles/:roleId` updates a custom role's name
+and/or replaces its permissionIds. Omitted fields remain unchanged; an empty array
+clears grants. Empty bodies and null fields are rejected. It requires
+ORGANIZATION_ROLE update; built-in roles cannot be edited. Non-owner editors must
+hold every active permission already on the target role as well as each requested
+permission; they cannot rename or strip stronger roles. Role changes and grant
+revocation/restoration are atomic. Revoked links are retained and restored only
+when explicitly requested. Existing assignees use changed permissions on their
+next authorization check. Deletion and assignment/revocation remain unimplemented.
 
 Existing database cleanup for this catalog change is manual: remove organization-role
 links for ORGANIZATION delete and transfer-ownership, remove remaining links before

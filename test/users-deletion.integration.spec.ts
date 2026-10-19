@@ -515,6 +515,252 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
             new PermissionsService(db as unknown as PrismaService),
           );
 
+        describe('Custom role updates', () => {
+          const permission = (resource: string, action: string) =>
+            db.permission.findUniqueOrThrow({
+              where: { action_resource: { resource, action } },
+            });
+          const custom = async (permissionIds: string[] = []) =>
+            roles().createForActor(regularId, organizationId, {
+              name: 'EDITOR',
+              permissionIds,
+            });
+
+          it('renames without changing grants and replaces grants without changing the name', async () => {
+            const read = await permission('ORGANIZATION_MEMBER', 'read');
+            const invite = await permission('ORGANIZATION_MEMBER', 'invite');
+            const role = await custom([read.id]);
+            await expect(
+              roles().updateForActor(regularId, organizationId, role.id, {
+                name: ' reviewer ',
+              }),
+            ).resolves.toMatchObject({
+              name: 'REVIEWER',
+              permissions: [{ id: read.id }],
+            });
+            await expect(
+              roles().updateForActor(regularId, organizationId, role.id, {
+                permissionIds: [invite.id],
+              }),
+            ).resolves.toMatchObject({
+              name: 'REVIEWER',
+              permissions: [{ id: invite.id }],
+            });
+            expect(
+              await db.rolePermission.findUniqueOrThrow({
+                where: {
+                  roleId_permissionId: {
+                    roleId: role.id,
+                    permissionId: read.id,
+                  },
+                },
+              }),
+            ).toMatchObject({ deletedAt: expect.any(Date) });
+            await roles().updateForActor(regularId, organizationId, role.id, {
+              permissionIds: [read.id],
+            });
+            expect(
+              await db.rolePermission.count({
+                where: { roleId: role.id, permissionId: read.id },
+              }),
+            ).toBe(1);
+            expect(
+              await db.rolePermission.findUniqueOrThrow({
+                where: {
+                  roleId_permissionId: {
+                    roleId: role.id,
+                    permissionId: read.id,
+                  },
+                },
+              }),
+            ).toMatchObject({ deletedAt: null });
+          });
+
+          it('clears permissions and updates authorization for existing assignees', async () => {
+            const invite = await permission('ORGANIZATION_MEMBER', 'invite');
+            const role = await custom([invite.id]);
+            await db.memberRole.create({
+              data: { organizationMemberId: membershipId, roleId: role.id },
+            });
+            const permissions = new PermissionsService(
+              db as unknown as PrismaService,
+            );
+            expect(
+              await permissions.hasOrganizationPermissions(
+                adminId,
+                organizationId,
+                [invite],
+              ),
+            ).toBe(true);
+            await expect(
+              roles().updateForActor(regularId, organizationId, role.id, {
+                permissionIds: [],
+              }),
+            ).resolves.toMatchObject({ permissions: [] });
+            expect(
+              await permissions.hasOrganizationPermissions(
+                adminId,
+                organizationId,
+                [invite],
+              ),
+            ).toBe(false);
+            expect(
+              await db.memberRole.count({ where: { roleId: role.id } }),
+            ).toBe(1);
+          });
+
+          it('denies non-editors and inactive actors', async () => {
+            const role = await custom();
+            for (const actor of [adminId, superId])
+              await expect(
+                roles().updateForActor(actor, organizationId, role.id, {
+                  name: 'DENIED',
+                }),
+              ).rejects.toMatchObject({ status: 403 });
+            await db.user.update({
+              where: { id: regularId },
+              data: { deletedAt: new Date() },
+            });
+            await expect(
+              roles().updateForActor(regularId, organizationId, role.id, {
+                name: 'DENIED',
+              }),
+            ).rejects.toMatchObject({ status: 401 });
+          });
+
+          it('protects built-in roles and excludes other organizations and deleted roles', async () => {
+            await expect(
+              roles().updateForActor(regularId, organizationId, roleId, {
+                name: 'RENAMED',
+              }),
+            ).rejects.toMatchObject({ status: 403 });
+            const admin = await db.role.findFirstOrThrow({
+              where: { organizationId, name: 'ADMIN' },
+            });
+            await expect(
+              roles().updateForActor(regularId, organizationId, admin.id, {
+                permissionIds: [],
+              }),
+            ).rejects.toMatchObject({ status: 403 });
+            const role = await custom();
+            const other = await organizations().create(regularId, {
+              name: 'Other',
+              slug: `role-update-${randomUUID()}`,
+            });
+            await expect(
+              roles().updateForActor(regularId, other.id, role.id, {
+                name: 'WRONG_SCOPE',
+              }),
+            ).rejects.toMatchObject({ status: 404 });
+            await db.role.update({
+              where: { id: role.id },
+              data: { deletedAt: new Date() },
+            });
+            await expect(
+              roles().updateForActor(regularId, organizationId, role.id, {
+                name: 'REMOVED',
+              }),
+            ).rejects.toMatchObject({ status: 404 });
+          });
+
+          it('rejects empty, null, reserved and duplicate names on direct service calls', async () => {
+            const role = await custom();
+            for (const input of [
+              {},
+              { name: null },
+              { permissionIds: null },
+              { name: 'admin' },
+            ]) {
+              await expect(
+                roles().updateForActor(
+                  regularId,
+                  organizationId,
+                  role.id,
+                  input as never,
+                ),
+              ).rejects.toMatchObject({ status: 422 });
+            }
+            await roles().createForActor(regularId, organizationId, {
+              name: 'RESERVED',
+              permissionIds: [],
+            });
+            await expect(
+              roles().updateForActor(regularId, organizationId, role.id, {
+                name: 'reserved',
+              }),
+            ).rejects.toMatchObject({ status: 409 });
+          });
+
+          it('does not partially rename when a permission selection is invalid', async () => {
+            const role = await custom();
+            for (const id of [randomUUID(), permissionId]) {
+              await expect(
+                roles().updateForActor(regularId, organizationId, role.id, {
+                  name: 'PARTIAL',
+                  permissionIds: [id],
+                }),
+              ).rejects.toMatchObject({ status: 422 });
+            }
+            expect(
+              await db.role.findUniqueOrThrow({ where: { id: role.id } }),
+            ).toMatchObject({ name: 'EDITOR' });
+          });
+
+          it('checks both current and replacement permissions before allowing delegation', async () => {
+            const update = await permission('ORGANIZATION_ROLE', 'update');
+            const invite = await permission('ORGANIZATION_MEMBER', 'invite');
+            const read = await permission('ORGANIZATION_MEMBER', 'read');
+            await db.rolePermission.create({
+              data: { roleId, permissionId: update.id },
+            });
+            const strongRole = await custom([invite.id]);
+            await expect(
+              roles().updateForActor(adminId, organizationId, strongRole.id, {
+                permissionIds: [],
+              }),
+            ).rejects.toMatchObject({ status: 403 });
+            await expect(
+              roles().updateForActor(adminId, organizationId, strongRole.id, {
+                name: 'STRONG',
+              }),
+            ).rejects.toMatchObject({ status: 403 });
+            const weakRole = await roles().createForActor(
+              regularId,
+              organizationId,
+              { name: 'WEAK', permissionIds: [read.id] },
+            );
+            await expect(
+              roles().updateForActor(adminId, organizationId, weakRole.id, {
+                permissionIds: [invite.id],
+              }),
+            ).rejects.toMatchObject({ status: 403 });
+            await expect(
+              roles().updateForActor(adminId, organizationId, weakRole.id, {
+                name: 'ALLOWED',
+              }),
+            ).resolves.toMatchObject({ name: 'ALLOWED' });
+          });
+
+          it('serializes concurrent permission replacements without merging them', async () => {
+            const read = await permission('ORGANIZATION_MEMBER', 'read');
+            const invite = await permission('ORGANIZATION_MEMBER', 'invite');
+            const role = await custom();
+            await Promise.all([
+              roles().updateForActor(regularId, organizationId, role.id, {
+                permissionIds: [read.id],
+              }),
+              roles().updateForActor(regularId, organizationId, role.id, {
+                permissionIds: [invite.id],
+              }),
+            ]);
+            const active = await db.rolePermission.findMany({
+              where: { roleId: role.id, deletedAt: null },
+            });
+            expect(active).toHaveLength(1);
+            expect([read.id, invite.id]).toContain(active[0].permissionId);
+          });
+        });
+
         describe('Custom role creation', () => {
           const permission = (resource: string, action: string) =>
             db.permission.findUniqueOrThrow({

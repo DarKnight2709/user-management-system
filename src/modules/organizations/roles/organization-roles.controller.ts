@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   ParseUUIDPipe,
   Post,
   Query,
@@ -13,6 +14,7 @@ import { RequireOrganizationPermissions } from '@/common/decorators/require-orga
 import { ListOrganizationsQueryDto } from '../dto/list-organizations-query.dto.js';
 import { OrganizationRolesService } from './organization-roles.service.js';
 import { CreateOrganizationRoleDto } from './dto/create-organization-role.dto.js';
+import { UpdateOrganizationRoleDto } from './dto/update-organization-role.dto.js';
 
 @ApiTags('Organization Roles')
 @ApiBearerAuth()
@@ -23,6 +25,23 @@ import { CreateOrganizationRoleDto } from './dto/create-organization-role.dto.js
 })
 export class OrganizationRolesController {
   constructor(private readonly roles: OrganizationRolesService) {}
+
+  @Patch(':roleId')
+  @RequireOrganizationPermissions({
+    resource: 'ORGANIZATION_ROLE',
+    action: 'update',
+  })
+  @ApiOperation({
+    summary: 'Update a custom role name or replace its permissions',
+  })
+  update(
+    @CurrentUser('id') actorId: string,
+    @Param('organizationId', ParseUUIDPipe) organizationId: string,
+    @Param('roleId', ParseUUIDPipe) roleId: string,
+    @Body() dto: UpdateOrganizationRoleDto,
+  ) {
+    return this.roles.updateForActor(actorId, organizationId, roleId, dto);
+  }
 
   @Post()
   @RequireOrganizationPermissions({
