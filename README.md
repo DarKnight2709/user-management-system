@@ -494,8 +494,8 @@ other members. No OWNER role is needed. Business rules and platform permissions
 still apply independently.
 Organization creation, reading/listing, name updates, member listing/removal,
 invitations, and initial ADMIN/MEMBER provisioning are implemented. Organization
-deletion, role assignment/revocation safeguards, and safe ownership transfer
-remain to be implemented. Custom role listing, creation, editing and deletion
+deletion and safe ownership transfer remain to be implemented. Organization role
+assignment/revocation is implemented with scope and delegation safeguards. Custom role listing, creation, editing and deletion
 are implemented.
 
 ### Your organization permissions
@@ -552,7 +552,28 @@ The service soft-deletes the role in a serializable transaction, retaining role
 permission links and member assignments as history. Subsequent authorization and
 permission-list requests ignore its grants. Authorized repeats return 204 without
 changing the original deletion time; current authorization is still required.
-Deleted role names remain reserved. Assignment/revocation remains unimplemented.
+Deleted role names remain reserved.
+
+### Member role assignment and revocation
+
+`PUT /organizations/:organizationId/members/:memberId/roles/:roleId` assigns a
+role and `DELETE` at the same path revokes that one assignment; both return 204.
+They require ORGANIZATION_ROLE assign/revoke respectively, checked by guard and
+service within a serializable transaction. The target membership and role must be
+active, nondeleted, and in the specified organization; the target user must not be
+deleted. System roles and legacy OWNER roles cannot be used. Only the actual owner
+can assign/revoke ADMIN, even if another member holds all of its permissions.
+Other role changes require authority over all active grants on the role; roles
+containing non-catalog permissions are rejected. Platform admin grants never bypass
+organization access checks. Role assignment changes no ownership.
+
+Assignments are additive: assigning MEMBER does not remove ADMIN. Demotion requires
+explicitly revoking ADMIN. Revocation soft-deletes MemberRole, retaining other roles,
+membership and grant history. Explicit reassignment restores the same record.
+Repeated authorized requests are idempotent; inactive/deleted targets remain invalid.
+Changes are reflected on subsequent permission checks. Assign/revoke and concurrent
+role deletion are covered with isolated PostgreSQL tests. Generalized role restoration,
+ownership transfer and organization deletion remain separate work.
 
 Existing database cleanup for this catalog change is manual: remove organization-role
 links for ORGANIZATION delete and transfer-ownership, remove remaining links before

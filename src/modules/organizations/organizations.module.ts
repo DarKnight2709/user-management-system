@@ -13,10 +13,13 @@ import { InvitationEmailService } from './invitations/services/invitation-email.
 import { InvitationQueueModule } from './invitations/invitation-queue.module.js';
 import { OrganizationRolesController } from './roles/organization-roles.controller.js';
 import { OrganizationRolesService } from './roles/organization-roles.service.js';
+import { MemberRolesController } from './members/member-roles.controller.js';
+import { MemberRolesService } from './members/member-roles.service.js';
 
 @Module({
   imports: [InvitationQueueModule],
   controllers: [
+    MemberRolesController,
     OrganizationRolesController,
     OrganizationsController,
     OrganizationMembersController,
@@ -24,6 +27,7 @@ import { OrganizationRolesService } from './roles/organization-roles.service.js'
     InvitationAcceptanceController,
   ],
   providers: [
+    MemberRolesService,
     OrganizationRolesService,
     OrganizationsService,
     OrganizationMembersService,
