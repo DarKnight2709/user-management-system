@@ -57,6 +57,8 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Documentation notes
+BACKEND_COMMON_PITFALLS.md
+BACKEND_AUDIT.md
 GIT_GUIDELINES.md
 AUTH_FOLLOW_UP.md
 RBAC_FOLLOW_UP.md

@@ -10,8 +10,6 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { GlobalModule } from './modules/global/global.module.js';
 import { PrismaClientExceptionFilter } from './common/filters/prisma-exception.filter.js';
 import { AuthModule } from './modules/auth/auth.module.js';
-import { ConfigModule } from '@nestjs/config';
-import { envValidationSchema } from './core/config/env.validation.js';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -22,12 +20,10 @@ import { HealthModule } from './modules/health/health.module.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
+import { WinstonModule, utilities as nestWinstonUtilities } from 'nest-winston';
+import * as winston from 'winston';
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      validationSchema: envValidationSchema,
-    }),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -50,6 +46,38 @@ import { ConfigService } from '@nestjs/config';
       { name: 'account', ttl: 60_000, limit: 5 },
       { name: 'userId', ttl: 60_000, limit: 5 },
     ]),
+    // accept the same options object as createLogger()
+    WinstonModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const service = configService.get<string>(
+          'SERVICE_NAME',
+          'backend-api',
+        );
+        const isDevelopment =
+          configService.get<string>('NODE_ENV') === 'development';
+
+        return {
+          level: configService.get<string>('LOG_LEVEL', 'info'),
+          defaultMeta: { service },
+          format: winston.format.combine(
+            winston.format.timestamp(),
+            isDevelopment
+              ? winston.format.combine(
+                  winston.format.ms(),
+                  nestWinstonUtilities.format.nestLike(service, {
+                    colors: !process.env.NO_COLOR,
+                    prettyPrint: true,
+                    processId: true,
+                    appName: true,
+                  }),
+                )
+              : winston.format.json(),
+          ),
+          transports: [new winston.transports.Console()],
+        };
+      },
+    }),
     UsersModule,
     GlobalModule,
     AuthModule,

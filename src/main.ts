@@ -4,10 +4,17 @@ import { AppModule } from './app.module.js';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from '@nestjs/common';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true, // Buffer logs until the logger is set up
+    // Without buffering, the early startup messages use Nest’s default logger
+  });
   app.enableShutdownHooks();
+  // Tell Nest to use that adapter for logging
+  // registering WinstonModule creates the providers, but it doesn't automatically replace the default logger. We need to do that manually.
+  app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3000);
   const swaggerEnabled =
