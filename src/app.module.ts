@@ -22,6 +22,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import { WinstonModule, utilities as nestWinstonUtilities } from 'nest-winston';
 import * as winston from 'winston';
+import { requestContext } from './core/logging/request-context.js';
 @Module({
   imports: [
     BullModule.forRootAsync({
@@ -56,11 +57,19 @@ import * as winston from 'winston';
         );
         const isDevelopment =
           configService.get<string>('NODE_ENV') === 'development';
+        const addRequestId = winston.format((info) => {
+          const context = requestContext.getStore();
+          if (context && context.requestId) {
+            info.requestId = context.requestId;
+          }
+          return info;
+        });
 
         return {
           level: configService.get<string>('LOG_LEVEL', 'info'),
           defaultMeta: { service },
           format: winston.format.combine(
+            addRequestId(),
             winston.format.timestamp(),
             isDevelopment
               ? winston.format.combine(
