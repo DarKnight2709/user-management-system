@@ -23,6 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import { WinstonModule, utilities as nestWinstonUtilities } from 'nest-winston';
 import * as winston from 'winston';
 import { requestContext } from './core/logging/request-context.js';
+import { redactSensitiveData } from './core/logging/redact-log.format.js';
 @Module({
   imports: [
     BullModule.forRootAsync({
@@ -70,6 +71,7 @@ import { requestContext } from './core/logging/request-context.js';
           defaultMeta: { service },
           format: winston.format.combine(
             addRequestId(),
+            redactSensitiveData(),
             winston.format.timestamp(),
             isDevelopment
               ? winston.format.combine(

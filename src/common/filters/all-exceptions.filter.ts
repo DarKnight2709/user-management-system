@@ -40,11 +40,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const cause = exception.cause;
 
       if (cause) {
-        this.logger.warn(
-          `Operational Exception [${status}] at ${path} - Cause: ${
-            cause instanceof Error ? cause.message : JSON.stringify(cause)
-          }`,
-        );
+        const logData = {
+          message: 'HTTP request failed',
+          event: 'http.operational_error',
+          statusCode: status,
+        };
+        if (status >= 500) this.logger.error(logData, undefined);
+        else this.logger.warn(logData);
       }
 
       if (typeof res === 'string') {
@@ -67,13 +69,37 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
     // 2. Unexpected System Crashes (Error / TypeError / DB drops)
     else {
-      const err =
-        exception instanceof Error ? exception : new Error(String(exception));
-
-      // Log full stack trace internally for debugging
+      const err = exception instanceof Error ? exception : undefined;
+      const knownErrorTypes = [
+        'Error',
+        'TypeError',
+        'RangeError',
+        'ReferenceError',
+        'SyntaxError',
+        'URIError',
+        'EvalError',
+        'AggregateError',
+      ];
+      // Raw messages, causes, URLs and custom error properties may contain secrets.
+      // Keep only call-site frames, excluding message and driver diagnostic lines.
+      const stack = err?.stack
+        ?.split('\n')
+        .slice(1)
+        .filter((line) => /^\s+at /.test(line))
+        .join('\n');
       this.logger.error(
-        `Unhandled Crash on ${path}: ${err.message}`,
-        err.stack,
+        {
+          message: 'Unhandled request error',
+          event: 'http.unhandled_error',
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          errorType: err
+            ? knownErrorTypes.includes(err.name)
+              ? err.name
+              : 'Error'
+            : 'NonError',
+          stack: stack || undefined,
+        },
+        undefined,
       );
 
       // NEVER leak raw crash details or stack traces to external clients

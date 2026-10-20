@@ -54,9 +54,14 @@ export class PrismaClientExceptionFilter implements ExceptionFilter {
         break;
       }
       default:
-        // Never send the raw table name (e.g. exception.meta?.table
+        // Raw Prisma messages and metadata can include SQL and sensitive values.
         this.logger.error(
-          `Prisma unhandled error [${exception.code}]: ${exception.message}`,
+          {
+            message: 'Unhandled database error',
+            event: 'database.unhandled_error',
+            code: exception.code,
+          },
+          undefined,
         );
         break;
     }
