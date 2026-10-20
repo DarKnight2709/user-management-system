@@ -36,13 +36,34 @@ export class PrismaService
       adapter,
       log: [
         { emit: 'event', level: 'query' },
-        { emit: 'stdout', level: 'info' },
-        { emit: 'stdout', level: 'warn' },
-        { emit: 'stdout', level: 'error' },
+        { emit: 'event', level: 'info' },
+        { emit: 'event', level: 'warn' },
+        { emit: 'event', level: 'error' },
       ],
     });
 
-    // 4. Log queries: log all queries in development, and warn on slow queries (>100ms)
+    // Never forward raw driver messages or metadata; they may contain sensitive data.
+    (this as any).$on('info', () => {
+      Logger.log(
+        { message: 'Database information event', event: 'database.info' },
+        'PrismaService',
+      );
+    });
+    (this as any).$on('warn', () => {
+      Logger.warn(
+        { message: 'Database warning', event: 'database.warning' },
+        'PrismaService',
+      );
+    });
+    (this as any).$on('error', () => {
+      Logger.error(
+        { message: 'Database error event', event: 'database.error' },
+        undefined,
+        'PrismaService',
+      );
+    });
+
+    // Log query metadata only; slow queries (>=100ms) warn in every environment.
     (this as any).$on('query', (e: Prisma.QueryEvent) => {
       const logDatabaseQueries =
         isDevelopment &&
@@ -61,9 +82,9 @@ export class PrismaService
       if (logDatabaseQueries) {
         Logger.debug(
           {
+            message: 'Database query completed',
             event: 'database_query',
             queryFingerprint,
-            query: e.query,
             durationMs: e.duration,
           },
           'PrismaService',
@@ -73,6 +94,7 @@ export class PrismaService
       if (isSlowQuery) {
         Logger.warn(
           {
+            message: 'Slow database query',
             event: 'slow_database_query',
             queryFingerprint,
             durationMs: e.duration,

@@ -197,9 +197,11 @@ filename; existing keys with an `avatars/` prefix must remain unchanged unless
 the corresponding objects are also moved.
 
 `LOG_DATABASE_QUERIES` defaults to `false` when omitted. Setting it to `true`
-enables SQL DEBUG logs only when `NODE_ENV=development`. SQL text may contain
-sensitive literals; enable it only temporarily with suitable development data.
-Slow-query warnings remain enabled in every environment.
+enables query DEBUG metadata only when `NODE_ENV=development` and the configured
+log level permits debug output. Records contain a SHA-256 query fingerprint and
+duration, never raw SQL or parameters. Slow-query warnings remain enabled in every
+environment. Prisma info/warn/error events go through Nest/Winston using fixed
+messages; raw driver messages and targets are omitted.
 
 Fill the empty database and storage fields with your configured credentials.
 Generate each JWT secret separately using this command (run it twice):
