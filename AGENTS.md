@@ -105,7 +105,7 @@ src/
    - Throw standard NestJS HTTP exceptions (`NotFoundException`, `ConflictException`, etc.).
    - Global filters handle Prisma and general exceptions.
 6. **Application Lifecycle**:
-   - Keep `app.enableShutdownHooks()` in `main.ts` so supported termination signals invoke lifecycle cleanup. Forced termination cannot run these hooks. Verify worker/resource ordering and in-flight behavior separately; do not infer Linux SIGTERM verification from Windows Ctrl+C checks.
+   - main.ts registers core/logging/registerGracefulShutdown for SIGINT/SIGTERM, awaiting app.close(signal) before flushing Winston and queued stdout/stderr. This user-approved coordinator replaces app.enableShutdownHooks(); do not enable a competing Nest signal handler. Nest 12 close(signal) forwards the signal to hooks. Repeated signals share one operation; total shutdown deadline 30 seconds, flush deadline 2 seconds. Clean signal exits use 130/143, failures/deadlines 1. Do not end the logger if application cleanup rejects or has not completed by the deadline. Programmatic app.close() alone does not flush. Forced termination cannot run cleanup. Verify worker/resource ordering and in-flight behavior separately; do not infer real Linux SIGTERM verification from simulated signals or Windows Ctrl+C checks. Deployment grace must exceed the shutdown budget.
 
 ---
 
