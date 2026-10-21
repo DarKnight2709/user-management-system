@@ -56,8 +56,8 @@ import { redactSensitiveData } from './core/logging/redact-log.format.js';
           'SERVICE_NAME',
           'backend-api',
         );
-        const isDevelopment =
-          configService.get<string>('NODE_ENV') === 'development';
+        const environment = configService.getOrThrow<string>('NODE_ENV');
+        const isDevelopment = environment === 'development';
         const addRequestId = winston.format((info) => {
           const context = requestContext.getStore();
           if (context && context.requestId) {
@@ -68,7 +68,7 @@ import { redactSensitiveData } from './core/logging/redact-log.format.js';
 
         return {
           level: configService.get<string>('LOG_LEVEL', 'info'),
-          defaultMeta: { service },
+          defaultMeta: { service, environment },
           format: winston.format.combine(
             addRequestId(),
             redactSensitiveData(),
