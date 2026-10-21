@@ -30,27 +30,44 @@ export class EmailNotificationWorker
 
   @OnWorkerEvent('error')
   onError(error: unknown): void {
-    this.logger.warn(
-      `Worker (${INVITATION_EMAIL_QUEUE}) encountered an error ${safeEmailErrorDetails(error)}`,
-    );
+    this.logger.warn({
+      message: 'Email worker encountered an error',
+      event: 'email.worker_error',
+      queue: INVITATION_EMAIL_QUEUE,
+      ...safeEmailErrorDetails(error),
+    });
   }
 
   @OnWorkerEvent('failed')
   onFailed(job: Job | undefined): void {
     if (!job) {
-      this.logger.warn(
-        `Worker (${INVITATION_EMAIL_QUEUE}) reported a failed job`,
-      );
+      this.logger.warn({
+        message: 'Email worker reported a failed job',
+        event: 'email.job_failed',
+        queue: INVITATION_EMAIL_QUEUE,
+      });
       return;
     }
-    this.logger.warn(
-      `Job ${job.id} (${job.name}) attempt=${job.attemptsMade}/${job.opts.attempts ?? 1} failed`,
-    );
+    this.logger.warn({
+      message: 'Email job attempt failed',
+      event: 'email.job_failed',
+      queue: INVITATION_EMAIL_QUEUE,
+      jobId: job.id,
+      jobName: job.name,
+      attempt: job.attemptsMade,
+      maxAttempts: job.opts.attempts ?? 1,
+    });
   }
 
   @OnWorkerEvent('completed')
   onCompleted(job: Job): void {
-    this.logger.log(`Job ${job.id} (${job.name}) completed`);
+    this.logger.log({
+      message: 'Email job completed',
+      event: 'email.job_completed',
+      queue: INVITATION_EMAIL_QUEUE,
+      jobId: job.id,
+      jobName: job.name,
+    });
   }
 
   async onModuleDestroy(): Promise<void> {

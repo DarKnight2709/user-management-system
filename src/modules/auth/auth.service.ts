@@ -31,8 +31,14 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
   async validateUser(email: string, password: string) {
+    const failureLog = {
+      message: 'Login failed',
+      event: 'auth.login_failed',
+      reason: 'invalid_credentials',
+    };
     const user = await this.userService.findOneByEmail(email);
     if (!user) {
+      this.logger.warn(failureLog);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -43,6 +49,7 @@ export class AuthService {
     );
 
     if (!isValidPassword) {
+      this.logger.warn(failureLog);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -69,6 +76,11 @@ export class AuthService {
         );
       },
     );
+    this.logger.log({
+      message: 'Login succeeded',
+      event: 'auth.login_succeeded',
+      userId: user.id,
+    });
     return { accessToken, refreshToken };
   }
 
@@ -132,6 +144,12 @@ export class AuthService {
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+    });
+
+    this.logger.log({
+      message: 'Password changed',
+      event: 'auth.password_changed',
+      userId,
     });
   }
 
@@ -213,6 +231,11 @@ export class AuthService {
       );
 
       if (!result) {
+        this.logger.warn({
+          message: 'Refresh token reuse detected',
+          event: 'auth.refresh_token_reuse_detected',
+          userId: payload.sub,
+        });
         throw new UnauthorizedException('Refresh token reuse detected');
       }
       return result;
@@ -227,7 +250,13 @@ export class AuthService {
         throw error;
       }
 
-      this.logger.error('Refresh token verification failed:', error);
+      this.logger.error(
+        {
+          message: 'Refresh token processing failed',
+          event: 'auth.refresh_failed',
+        },
+        undefined,
+      );
       throw error;
     }
   }
@@ -260,6 +289,13 @@ export class AuthService {
         data: { revokedAt: new Date() },
       });
     });
+
+    this.logger.log({
+      message: 'Logout completed',
+      event: 'auth.logout_completed',
+      userId,
+      scope: 'session_family',
+    });
   }
 
   async logoutAll(userId: string): Promise<void> {
@@ -279,11 +315,23 @@ export class AuthService {
       );
     } catch (error) {
       this.logger.error(
-        `Logout all sessions failed for userId: ${userId}`,
-        error,
+        {
+          message: 'Logout failed',
+          event: 'auth.logout_failed',
+          userId,
+          scope: 'all_sessions',
+        },
+        undefined,
       );
       throw error;
     }
+
+    this.logger.log({
+      message: 'Logout completed',
+      event: 'auth.logout_completed',
+      userId,
+      scope: 'all_sessions',
+    });
   }
 
   // HELPERS

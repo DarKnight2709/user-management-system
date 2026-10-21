@@ -16,7 +16,11 @@ export class InvitationEmailService {
     private readonly queue: Queue<SendInvitationJobData>,
   ) {
     this.queue.on('error', () =>
-      this.logger.warn('Invitation queue connection unavailable'),
+      this.logger.warn({
+        message: 'Invitation queue connection unavailable',
+        event: 'invitation.queue_unavailable',
+        queue: INVITATION_EMAIL_QUEUE,
+      }),
     );
   }
 
@@ -54,9 +58,14 @@ export class InvitationEmailService {
       });
       return true;
     } catch {
-      this.logger.warn(
-        'Invitation email enqueue unavailable; resend or copy link remains available',
-      );
+      this.logger.warn({
+        message:
+          'Invitation email enqueue unavailable; resend or copy link remains available',
+        event: 'invitation.enqueue_unavailable',
+        invitationId,
+        version,
+        queue: INVITATION_EMAIL_QUEUE,
+      });
       return false;
     } finally {
       if (deadline) clearTimeout(deadline);

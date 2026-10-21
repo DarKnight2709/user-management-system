@@ -197,9 +197,11 @@ filename; existing keys with an `avatars/` prefix must remain unchanged unless
 the corresponding objects are also moved.
 
 `LOG_DATABASE_QUERIES` defaults to `false` when omitted. Setting it to `true`
-enables SQL DEBUG logs only when `NODE_ENV=development`. SQL text may contain
-sensitive literals; enable it only temporarily with suitable development data.
-Slow-query warnings remain enabled in every environment.
+enables query DEBUG metadata only when `NODE_ENV=development` and the configured
+log level permits debug output. Records contain a SHA-256 query fingerprint and
+duration, never raw SQL or parameters. Slow-query warnings remain enabled in every
+environment. Prisma info/warn/error events go through Nest/Winston using fixed
+messages; raw driver messages and targets are omitted.
 
 Fill the empty database and storage fields with your configured credentials.
 Generate each JWT secret separately using this command (run it twice):
@@ -691,10 +693,23 @@ npm run build
 npm run start:prod
 ```
 
-The bootstrap enables Nest shutdown hooks so supported termination signals invoke
-the application's lifecycle cleanup. Forced termination cannot run cleanup hooks.
-Verify Ctrl+C (SIGINT) on Windows and SIGTERM separately in the Linux deployment;
-enabling hooks alone does not verify in-flight request or worker shutdown behavior.
+Bootstrap registers one SIGINT/SIGTERM coordinator instead of Nest's automatic
+signal handlers. It awaits `app.close(signal)` (including Nest lifecycle hooks),
+then ends Winston and waits for its writable side and queued stdout/stderr writes.
+It never ends stdout/stderr themselves. Flush has a 2-second deadline; the entire
+shutdown has a 30-second deadline. Clean SIGINT/SIGTERM exits use codes 130/143;
+cleanup rejection, flush failure or a deadline exits with code 1. Repeated signals
+share the same shutdown operation. If cleanup rejects or its deadline expires,
+the logger is not deliberately ended while workers may still be running.
+
+Do not also call `app.enableShutdownHooks()` for these signals: a second handler
+could terminate the process before flushing completes. Programmatic `app.close()`
+alone does not invoke the coordinator's flush. Forced termination cannot run cleanup.
+Deployment termination grace must exceed the coordinator's 30-second budget.
+Windows Ctrl+C and real Linux SIGTERM/container behavior still need separate
+verification; simulated signals and lifecycle tests do not prove deployment drain
+or external log durability. Other signals and full resource dependency ordering
+are outside this coordinator's verification.
 
 Once started, the server will log:
 

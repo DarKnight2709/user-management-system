@@ -35,6 +35,9 @@ export const envValidationSchema = Joi.object({
   S3_SECRET_KEY: Joi.string().required(),
   S3_FORCE_PATH_STYLE: Joi.boolean().default(true),
   S3_PUBLIC_URL: Joi.string().uri().required(),
+  LOG_LEVEL: Joi.string()
+    .valid('error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly')
+    .empty(''),
   LOG_DATABASE_QUERIES: Joi.boolean().default(false),
   FRONTEND_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })

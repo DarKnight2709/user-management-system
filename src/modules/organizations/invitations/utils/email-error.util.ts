@@ -23,8 +23,11 @@ const safeCodes = new Set([
   'P2034',
 ]);
 
-export function safeEmailErrorDetails(error: unknown): string {
-  if (typeof error !== 'object' || error === null) return 'code=UNKNOWN';
+export function safeEmailErrorDetails(error: unknown): {
+  code: string;
+  responseCode?: number;
+} {
+  if (typeof error !== 'object' || error === null) return { code: 'UNKNOWN' };
   const code =
     'code' in error &&
     typeof error.code === 'string' &&
@@ -37,7 +40,7 @@ export function safeEmailErrorDetails(error: unknown): string {
     Number.isInteger(error.responseCode) &&
     error.responseCode >= 400 &&
     error.responseCode <= 599
-      ? ` responseCode=${error.responseCode}`
-      : '';
-  return `code=${code}${responseCode}`;
+      ? error.responseCode
+      : undefined;
+  return responseCode === undefined ? { code } : { code, responseCode };
 }
