@@ -31,8 +31,14 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
   async validateUser(email: string, password: string) {
+    const failureLog = {
+      message: 'Login failed',
+      event: 'auth.login_failed',
+      reason: 'invalid_credentials',
+    };
     const user = await this.userService.findOneByEmail(email);
     if (!user) {
+      this.logger.warn(failureLog);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -43,6 +49,7 @@ export class AuthService {
     );
 
     if (!isValidPassword) {
+      this.logger.warn(failureLog);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -69,6 +76,11 @@ export class AuthService {
         );
       },
     );
+    this.logger.log({
+      message: 'Login succeeded',
+      event: 'auth.login_succeeded',
+      userId: user.id,
+    });
     return { accessToken, refreshToken };
   }
 
@@ -132,6 +144,12 @@ export class AuthService {
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+    });
+
+    this.logger.log({
+      message: 'Password changed',
+      event: 'auth.password_changed',
+      userId,
     });
   }
 
