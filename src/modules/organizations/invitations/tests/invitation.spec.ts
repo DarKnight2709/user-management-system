@@ -40,7 +40,7 @@ describe('Safe email error diagnostics', () => {
         message: 'private credentials',
         response: 'private SMTP response',
       }),
-    ).toBe('code=EAUTH responseCode=535');
+    ).toEqual({ code: 'EAUTH', responseCode: 535 });
   });
 
   it.each([
@@ -48,7 +48,7 @@ describe('Safe email error diagnostics', () => {
     'private error',
     { code: 'private token', responseCode: 'private response' },
   ])('does not expose unknown error properties', (error) => {
-    expect(safeEmailErrorDetails(error)).toBe('code=UNKNOWN');
+    expect(safeEmailErrorDetails(error)).toEqual({ code: 'UNKNOWN' });
   });
 });
 
@@ -275,9 +275,14 @@ describe('Invitation email delivery', () => {
       await expect(
         service.deliver({ invitationId: 'invitation', version: 1 }),
       ).rejects.toThrow('Invitation email delivery failed');
-      expect(warn).toHaveBeenCalledWith(
-        'Invitation invitation version=1 stage=smtp-send failed code=EDNS',
-      );
+      expect(warn).toHaveBeenCalledWith({
+        message: 'Invitation email delivery failed',
+        event: 'invitation.delivery_failed',
+        invitationId: 'invitation',
+        version: 1,
+        stage: 'smtp-send',
+        code: 'EDNS',
+      });
       expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
     } finally {
       warn.mockRestore();

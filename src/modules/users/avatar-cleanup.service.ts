@@ -37,10 +37,14 @@ export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
     if (this.running || this.stopped) return;
     this.running = true;
     this.activeRun = this.processBatch().catch((error: unknown) => {
-      this.logger.error({
-        event: 'avatar_cleanup_worker_failed',
-        errorCategory: this.getErrorCategory(error),
-      });
+      this.logger.error(
+        {
+          message: 'Avatar cleanup worker failed',
+          event: 'avatar_cleanup_worker_failed',
+          errorCategory: this.getErrorCategory(error),
+        },
+        undefined,
+      );
     });
     try {
       await this.activeRun;
@@ -101,17 +105,22 @@ export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
             },
           });
         } catch (schedulingError) {
-          this.logger.error({
-            event: 'avatar_cleanup_retry_scheduling_failed',
-            taskId: task.id,
-            attempt: task.attempts + 1,
-            errorCategory: this.getErrorCategory(error),
-            schedulingErrorCategory: this.getErrorCategory(schedulingError),
-          });
+          this.logger.error(
+            {
+              message: 'Avatar cleanup retry scheduling failed',
+              event: 'avatar_cleanup_retry_scheduling_failed',
+              taskId: task.id,
+              attempt: task.attempts + 1,
+              errorCategory: this.getErrorCategory(error),
+              schedulingErrorCategory: this.getErrorCategory(schedulingError),
+            },
+            undefined,
+          );
           throw schedulingError;
         }
         if (scheduled.count !== 1) continue;
         this.logger.warn({
+          message: 'Avatar cleanup retry scheduled',
           event: 'avatar_cleanup_retry_scheduled',
           taskId: task.id,
           attempt: task.attempts + 1,

@@ -60,9 +60,14 @@ export class InvitationDeliveryService {
         data: { deliveryStatus: 'SENT', sentAt: new Date() },
       });
     } catch (error) {
-      this.logger.warn(
-        `Invitation ${invitationId} version=${version} stage=${stage} failed ${safeEmailErrorDetails(error)}`,
-      );
+      this.logger.warn({
+        message: 'Invitation email delivery failed',
+        event: 'invitation.delivery_failed',
+        invitationId,
+        version,
+        stage,
+        ...safeEmailErrorDetails(error),
+      });
       await this.markFailed(job);
       throw new Error('Invitation email delivery failed');
     }
@@ -90,9 +95,14 @@ export class InvitationDeliveryService {
         data: { deliveryStatus: 'FAILED' },
       });
     } catch (error) {
-      this.logger.warn(
-        `Invitation ${invitationId} version=${version} stage=database-record-failed failed ${safeEmailErrorDetails(error)}`,
-      );
+      this.logger.warn({
+        message: 'Invitation delivery failure could not be recorded',
+        event: 'invitation.failure_record_failed',
+        invitationId,
+        version,
+        stage: 'database-record-failed',
+        ...safeEmailErrorDetails(error),
+      });
     }
   }
 }
