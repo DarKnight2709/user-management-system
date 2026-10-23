@@ -38,7 +38,7 @@ services:
       - ums-net
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: ums-minio
     restart: always
     environment:
@@ -84,4 +84,5 @@ volumes:
 
 networks:
   ums-net:
+    name: ums-net
     driver: bridge
