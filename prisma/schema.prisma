@@ -7,6 +7,8 @@ generator client {
   provider        = "prisma-client"
   output          = "../src/generated/prisma"
   previewFeatures = ["partialIndexes"]
+  moduleFormat        = "esm"
+  importFileExtension = "js"
 }
 
 datasource db {
