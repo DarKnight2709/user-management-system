@@ -48,7 +48,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: 'docker-compose.prod.yml,.env'
+          source: 'docker-compose.prod.yml,.env,docker/minio/avatars-policy.json'
           target: '~/app'
 
       # 3. Thực thi kéo Image mới, Migrate DB, Up container và Dọn rác
@@ -59,6 +59,7 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e
             echo ${{ secrets.GH_PAT }} | docker login ghcr.io -u DarKnight2709 --password-stdin
 
             cd ~/app
