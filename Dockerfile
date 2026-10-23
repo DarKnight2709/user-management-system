@@ -37,6 +37,7 @@
   COPY --from=builder --chown=node:node /app/prisma ./prisma
   COPY --from=builder --chown=node:node /app/prisma7.config.ts ./prisma7.config.ts
   COPY --from=builder --chown=node:node /app/src/generated/prisma ./src/generated/prisma
+  COPY --from=builder --chown=node:node /app/src/common/utils ./src/common/utils
 
   # Chuyển sang user non-root
   USER node
