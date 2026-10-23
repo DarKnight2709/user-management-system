@@ -59,7 +59,7 @@ services:
       - ums-net
 
   backend:
-    image: ghcr.io/DarKnight2709/ums-backend:latest
+    image: ghcr.io/darknight2709/ums-backend:latest
     container_name: ums-backend
     restart: always
     env_file:
