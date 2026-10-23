@@ -37,7 +37,8 @@
   COPY --from=builder --chown=node:node /app/prisma ./prisma
   COPY --from=builder --chown=node:node /app/prisma7.config.ts ./prisma7.config.ts
   COPY --from=builder --chown=node:node /app/src/generated/prisma ./src/generated/prisma
-  COPY --from=builder --chown=node:node /app/src/common/utils ./src/common/utils
+  # Seeds share source utilities and the organization permission catalog.
+  COPY --from=builder --chown=node:node /app/src/common ./src/common
 
   # Chuyển sang user non-root
   USER node
