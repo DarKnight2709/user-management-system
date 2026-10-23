@@ -69,6 +69,10 @@ jobs:
             # Chạy Prisma migration bằng temporary container
             docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
 
+            # Seed catalog quyền sau khi migration thành công.
+            docker compose -f docker-compose.prod.yml run --rm --no-deps backend \
+            npm run prisma:seed:organization-permissions
+
             # Khởi chạy/Cập nhật các service
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
