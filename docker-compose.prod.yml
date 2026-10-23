@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ums-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - ums-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: ums-redis
+    restart: always
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - redisdata:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+    networks:
+      - ums-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: ums-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadminpass
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
+    command: server /data --console-address ":9001"
+    volumes:
+      - miniodata:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - ums-net
+
+  backend:
+    image: ghcr.io/DarKnight2709/ums-backend:latest
+    container_name: ums-backend
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      - postgres
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - ums-net
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+
+networks:
+  ums-net:
+    driver: bridge

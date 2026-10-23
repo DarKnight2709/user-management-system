@@ -1,0 +1,13 @@
+.git
+.env*
+!.env.example
+node_modules
+dist
+coverage
+uploads
+logs
+.nest_repl_history
+*.log
+*.tsbuildinfo
+.temp
+.tmp
