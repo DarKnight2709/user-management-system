@@ -1,0 +1,76 @@
+name: Build, Migrate and Deploy Backend
+
+on:
+  push:
+    branches: ['main']
+
+jobs:
+  build-and-push-backend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: DarKnight2709
+          password: ${{ secrets.GH_PAT }}
+
+      - name: Build and push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/DarKnight2709/ums-backend:latest
+
+  deploy-to-vps:
+    needs: build-and-push-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1. Bung file .env từ Secret ENV_PRODUCTION
+      - name: Create .env file from GitHub Secret
+        run: |
+          echo "${{ secrets.ENV_PRODUCTION }}" > .env
+
+      # 2. Copy docker-compose.prod.yml và .env lên VPS
+      - name: Copy deployment files to VPS
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: 'docker-compose.prod.yml,.env'
+          target: '~/app'
+
+      # 3. Thực thi kéo Image mới, Migrate DB, Up container và Dọn rác
+      - name: Execute deployment & migration on VPS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo ${{ secrets.GH_PAT }} | docker login ghcr.io -u DarKnight2709 --password-stdin
+
+            cd ~/app
+
+            # Kéo image backend mới nhất về VPS
+            docker compose -f docker-compose.prod.yml pull backend
+
+            # Chạy Prisma migration bằng temporary container
+            docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
+
+            # Khởi chạy/Cập nhật các service
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # Dọn dẹp rác image cũ để giải phóng dung lượng ổ cứng VPS
+            docker image prune -f
