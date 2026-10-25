@@ -11,9 +11,10 @@ import {
 import type { Logger as WinstonLogger } from 'winston';
 import { registerGracefulShutdown } from './core/logging/graceful-shutdown.js';
 import helmet from 'helmet';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true, // Buffer logs until the logger is set up
     // Without buffering, the early startup messages use Nest’s default logger
   });
@@ -21,6 +22,10 @@ async function bootstrap() {
   // registering WinstonModule creates the providers, but it doesn't automatically replace the default logger. We need to do that manually.
   app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
   const configService = app.get(ConfigService);
+  app.set(
+    'trust proxy',
+    configService.get<string>('NODE_ENV') === 'production' ? 1 : false,
+  );
   app.use(helmet());
   const port = configService.get<number>('PORT', 3000);
   const swaggerEnabled =
