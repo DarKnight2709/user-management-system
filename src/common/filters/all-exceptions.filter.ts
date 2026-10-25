@@ -66,6 +66,28 @@ export class AllExceptionsFilter implements ExceptionFilter {
           path,
         };
       }
+    } else if (
+      exception instanceof Error &&
+      'type' in exception &&
+      exception.type === 'entity.too.large' &&
+      'status' in exception &&
+      exception.status === HttpStatus.PAYLOAD_TOO_LARGE
+    ) {
+      status = HttpStatus.PAYLOAD_TOO_LARGE;
+
+      errorResponse = {
+        statusCode: status,
+        error: 'Payload Too Large',
+        message: 'Request body exceeds the allowed size',
+        timestamp,
+        path,
+      };
+
+      this.logger.warn({
+        message: 'Request body exceeds the allowed size',
+        event: 'http.payload_too_large',
+        statusCode: status,
+      });
     }
     // 2. Unexpected System Crashes (Error / TypeError / DB drops)
     else {
