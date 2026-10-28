@@ -157,10 +157,12 @@ export class AuthService {
       });
     });
 
-    this.logger.log({
-      message: 'Password changed',
-      event: 'auth.password_changed',
-      userId,
+    this.loggingService.security({
+      action: 'auth.password.changed',
+      actor: { type: 'USER', id: userId },
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+      },
     });
   }
 

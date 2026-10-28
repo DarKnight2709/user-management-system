@@ -49,6 +49,14 @@ export const authSecurityEventSchema =
         loginIdentifierRef: Joi.string().hex().length(64),
         requestContext: authRequestContextSchema,
       }),
+      Joi.object({
+        action: Joi.string().valid('auth.password.changed').required(),
+        actor: Joi.object({
+          type: Joi.string().valid('USER').required(),
+          id: idSchema,
+        }).required(),
+        requestContext: authRequestContextSchema,
+      }),
     )
     .required()
     .prefs({

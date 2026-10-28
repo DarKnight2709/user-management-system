@@ -24,4 +24,12 @@ export type AuthSecurityEventInput =
       reasonCode: 'INVALID_CREDENTIALS' | 'ACCOUNT_UNAVAILABLE';
       loginIdentifierRef?: string;
       requestContext: AuthRequestContext;
+    }
+  | {
+      action: 'auth.password.changed';
+      actor: {
+        type: 'USER';
+        id: string;
+      };
+      requestContext: AuthRequestContext;
     };

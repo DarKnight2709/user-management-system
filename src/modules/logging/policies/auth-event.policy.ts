@@ -1,4 +1,7 @@
-export type AuthEventName = 'auth.login.succeeded' | 'auth.login.failed';
+export type AuthEventName =
+  | 'auth.login.succeeded'
+  | 'auth.login.failed'
+  | 'auth.password.changed';
 
 type AuthEventPolicy = {
   schemaVersion: 1;
@@ -11,7 +14,8 @@ type AuthEventPolicy = {
 
   emitWhen:
     | 'authentication-completed-and-session-committed'
-    | 'authentication-rejected';
+    | 'authentication-rejected'
+    | 'password-change-committed';
 
   onLoggingFailure: 'preserve-authentication-result';
 };
@@ -36,6 +40,17 @@ export const AUTH_EVENT_POLICIES = {
     outcome: 'FAILURE',
     level: 'warn',
     emitWhen: 'authentication-rejected',
+    onLoggingFailure: 'preserve-authentication-result',
+  },
+
+  'auth.password.changed': {
+    schemaVersion: 1,
+    category: 'security',
+    output: 'winston-console',
+    persistToPostgres: false,
+    outcome: 'SUCCESS',
+    level: 'info',
+    emitWhen: 'password-change-committed',
     onLoggingFailure: 'preserve-authentication-result',
   },
 } as const satisfies Record<AuthEventName, AuthEventPolicy>;

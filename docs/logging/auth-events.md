@@ -11,7 +11,7 @@
 - IP chỉ lấy từ kết nối hoặc proxy đã được tin cậy.
 - Dữ liệu phải được chuẩn hóa, lọc secrets và giới hạn kích thước.
 - Các request bị rate limiter chặn thuộc event auth.login.throttled.
-- auth.login.throttled và auth.login.error sẽ có catalog riêng; chưa thuộc phạm vi triển khai event này.-
+- `auth.login.throttled` và `auth.login.error` có catalog riêng, chưa thuộc phạm vi triển khai hiện tại.
 - Lỗi hạ tầng thuộc application log hoặc auth.login.error,
   không ghi thành lỗi credential.
 - Loki retention dự kiến: 7 ngày cho giai đoạn đầu.
@@ -75,3 +75,32 @@ Một lần xác thực được xử lý và bị từ chối.
 - Không trả reason nội bộ hoặc tình trạng tồn tại tài khoản cho client.
 - Producer: Một vị trí duy nhất sở hữu quyết định từ chối.
   Không ghi lặp tại strategy, guard và exception filter.
+
+## auth.password.changed
+
+### Ý nghĩa
+
+Server đã commit việc đổi mật khẩu và thu hồi các refresh session hiện có.
+
+Không khẳng định client đã nhận response.
+
+### Trigger
+
+- Mật khẩu hiện tại hợp lệ.
+- Mật khẩu mới khác mật khẩu hiện tại.
+- Transaction cập nhật mật khẩu và thu hồi refresh session đã commit.
+
+### Dữ liệu
+
+- actor: USER thực hiện đổi mật khẩu.
+- outcome: SUCCESS.
+- requestContext: requestId.
+- Không ghi mật khẩu, password hash hoặc refresh token.
+
+### Chính sách
+
+- Đích: Winston Console -> Docker -> Alloy -> Loki.
+- Không lưu event riêng vào PostgreSQL.
+- Chỉ phát event sau khi transaction commit.
+- Lỗi logging không đảo ngược việc đổi mật khẩu đã commit.
+- Producer: AuthService sau transaction đổi mật khẩu.
