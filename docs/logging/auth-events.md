@@ -1,5 +1,18 @@
 # Authentication event catalog
 
+## auth.registration.succeeded
+
+- Trigger: AuthService nhận kết quả tạo tài khoản thành công từ UsersService.create.
+- actor: ANONYMOUS vì request đăng ký chưa xác thực; không khẳng định đã đăng nhập.
+- target: USER với ID do database trả về.
+- outcome: SUCCESS; level: info.
+- requestContext: requestId, IP và User-Agent được lọc theo schema chung.
+- Không ghi email, username, thông tin hồ sơ, mật khẩu, hash hoặc raw body.
+- Không phát khi validation, hashing hoặc tạo user thất bại (bao gồm trùng email/username).
+- Chỉ xuất Winston -> Docker -> Alloy -> Loki, sau khi tạo user đã commit.
+- Lỗi logging không đảo ngược việc tạo tài khoản và không thay đổi response.
+- Event không xác nhận client đã nhận response hoặc người đăng ký sở hữu email.
+
 ## auth.password.change_failed
 
 - Trigger: so sánh mật khẩu hiện tại trả về không khớp, trước khi cập nhật dữ liệu.

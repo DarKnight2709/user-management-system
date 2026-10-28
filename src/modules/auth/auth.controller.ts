@@ -44,8 +44,12 @@ export class AuthController {
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: RegisterDto })
-  async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  async register(@Body() dto: RegisterDto, @Req() request: Request) {
+    return this.authService.register(
+      dto,
+      request.ip,
+      request.get('user-agent'),
+    );
   }
 
   @IpRateLimit(10)

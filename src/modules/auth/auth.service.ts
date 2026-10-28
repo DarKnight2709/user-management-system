@@ -95,20 +95,35 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  async register(dto: RegisterDto) {
+  async register(
+    dto: RegisterDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     // Hash password
     const hashedPassword = await hash(dto.password);
     const emailInput = dto.email.trim().toLowerCase();
     const usernameInput = dto.username.trim().toLowerCase();
 
     // Create user
-    await this.userService.create({
+    const user = await this.userService.create({
       username: usernameInput,
       hashedPassword,
       firstName: dto.firstName,
       lastName: dto.lastName,
       birthDate: dto.birthDate,
       email: emailInput,
+    });
+
+    this.loggingService.security({
+      action: 'auth.registration.succeeded',
+      actor: { type: 'ANONYMOUS' },
+      target: { type: 'USER', id: user.id },
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
   }
 

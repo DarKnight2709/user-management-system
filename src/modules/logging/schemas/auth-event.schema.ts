@@ -27,6 +27,17 @@ export const authSecurityEventSchema =
   Joi.alternatives<AuthSecurityEventInput>()
     .try(
       Joi.object({
+        action: Joi.string().valid('auth.registration.succeeded').required(),
+        actor: Joi.object({
+          type: Joi.string().valid('ANONYMOUS').required(),
+        }).required(),
+        target: Joi.object({
+          type: Joi.string().valid('USER').required(),
+          id: idSchema,
+        }).required(),
+        requestContext: authRequestContextSchema,
+      }),
+      Joi.object({
         action: Joi.string().valid('auth.password.change_failed').required(),
         actor: Joi.object({
           type: Joi.string().valid('USER').required(),
