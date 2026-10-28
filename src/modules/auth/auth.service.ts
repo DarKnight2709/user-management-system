@@ -34,14 +34,9 @@ export class AuthService {
     private readonly loggingService: LoggingService,
   ) {}
   async validateUser(email: string, password: string) {
-    const failureLog = {
-      message: 'Login failed',
-      event: 'auth.login_failed',
-      reason: 'invalid_credentials',
-    };
     const user = await this.userService.findOneByEmail(email);
     if (!user) {
-      this.logger.warn(failureLog);
+      this.logLoginFailure();
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -52,7 +47,7 @@ export class AuthService {
     );
 
     if (!isValidPassword) {
-      this.logger.warn(failureLog);
+      this.logLoginFailure();
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -461,5 +456,17 @@ export class AuthService {
         ),
       },
     );
+  }
+
+  private logLoginFailure(): void {
+    const requestId = requestContext.getStore()?.requestId ?? randomUUID();
+
+    this.loggingService.security({
+      action: 'auth.login.failed',
+      actor: { type: 'ANONYMOUS' },
+      authMethod: 'PASSWORD',
+      reasonCode: 'INVALID_CREDENTIALS',
+      requestContext: { requestId },
+    });
   }
 }
