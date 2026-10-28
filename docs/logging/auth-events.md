@@ -11,7 +11,6 @@
 - IP chỉ lấy từ kết nối hoặc proxy đã được tin cậy.
 - Dữ liệu phải được chuẩn hóa, lọc secrets và giới hạn kích thước.
 - Các request bị rate limiter chặn thuộc event auth.login.throttled.
-- `auth.login.throttled` và `auth.login.error` có catalog riêng, chưa thuộc phạm vi triển khai hiện tại.
 - Lỗi hạ tầng thuộc application log hoặc auth.login.error,
   không ghi thành lỗi credential.
 - Loki retention dự kiến: 7 ngày cho giai đoạn đầu.
@@ -149,3 +148,23 @@ Server đã hoàn tất yêu cầu thu hồi refresh session.
 - Với logout một phiên không còn bản ghi, thao tác vẫn hoàn tất idempotently; sessionRef được bỏ qua.
 - Logging failure không thay đổi kết quả logout.
 - Producer: AuthService sau transaction logout/logout-all.
+
+## auth.login.throttled
+
+### Ý nghĩa
+
+Login request bị chặn bởi rate limiter trước khi chạy xác thực bằng mật khẩu.
+
+### Dữ liệu
+
+- actor: ANONYMOUS.
+- limitPolicy: `IP` hoặc `ACCOUNT`, chỉ cho biết counter policy nào đạt giới hạn.
+- requestContext: requestId; IP/User-Agent nếu policy cho phép.
+- Không ghi email, password hoặc tracker key.
+
+### Chính sách
+
+- Đích: Winston Console -> Docker -> Alloy -> Loki.
+- Chỉ phát cho route login khi limiter từ chối request.
+- Không lưu event riêng vào PostgreSQL.
+- Producer: CustomThrottlerGuard trước khi trả HTTP 429.

@@ -90,6 +90,14 @@ export const authSecurityEventSchema =
         scope: Joi.string().valid('ALL_SESSIONS').required(),
         requestContext: authRequestContextSchema,
       }),
+      Joi.object({
+        action: Joi.string().valid('auth.login.throttled').required(),
+        actor: Joi.object({
+          type: Joi.string().valid('ANONYMOUS').required(),
+        }).required(),
+        limitPolicy: Joi.string().valid('IP', 'ACCOUNT').required(),
+        requestContext: authRequestContextSchema,
+      }),
     )
     .required()
     .prefs({

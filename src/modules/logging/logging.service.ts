@@ -79,7 +79,7 @@ export class LoggingService implements OnModuleDestroy {
 
   /**
    * Security:
-   * - Hiện hỗ trợ hai login event.
+   * - Validates catalogued auth security events and writes them through Winston Console.
    * - Policy hiện tại chỉ xuất qua Winston Console.
    * - Không chờ Loki xác nhận lưu thành công.
    */

@@ -63,4 +63,12 @@ export type AuthSecurityEventInput =
       };
       scope: 'ALL_SESSIONS';
       requestContext: AuthRequestContext;
+    }
+  | {
+      action: 'auth.login.throttled';
+      actor: {
+        type: 'ANONYMOUS';
+      };
+      limitPolicy: 'IP' | 'ACCOUNT';
+      requestContext: AuthRequestContext;
     };

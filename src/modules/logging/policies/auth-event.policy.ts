@@ -3,7 +3,8 @@ export type AuthEventName =
   | 'auth.login.failed'
   | 'auth.password.changed'
   | 'auth.refresh_token.reuse_detected'
-  | 'auth.logout.completed';
+  | 'auth.logout.completed'
+  | 'auth.login.throttled';
 
 type AuthEventPolicy = {
   schemaVersion: 1;
@@ -19,7 +20,8 @@ type AuthEventPolicy = {
     | 'authentication-rejected'
     | 'password-change-committed'
     | 'revoked-refresh-token-reused'
-    | 'logout-revocation-committed';
+    | 'logout-revocation-committed'
+    | 'login-rate-limit-exceeded';
 
   onLoggingFailure: 'preserve-authentication-result';
 };
@@ -77,6 +79,17 @@ export const AUTH_EVENT_POLICIES = {
     outcome: 'SUCCESS',
     level: 'info',
     emitWhen: 'logout-revocation-committed',
+    onLoggingFailure: 'preserve-authentication-result',
+  },
+
+  'auth.login.throttled': {
+    schemaVersion: 1,
+    category: 'security',
+    output: 'winston-console',
+    persistToPostgres: false,
+    outcome: 'FAILURE',
+    level: 'warn',
+    emitWhen: 'login-rate-limit-exceeded',
     onLoggingFailure: 'preserve-authentication-result',
   },
 } as const satisfies Record<AuthEventName, AuthEventPolicy>;
