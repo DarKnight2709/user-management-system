@@ -44,4 +44,23 @@ export type AuthSecurityEventInput =
       };
       sessionRef: string;
       requestContext: AuthRequestContext;
+    }
+  | {
+      action: 'auth.logout.completed';
+      actor: {
+        type: 'USER';
+        id: string;
+      };
+      scope: 'SESSION_FAMILY';
+      sessionRef?: string;
+      requestContext: AuthRequestContext;
+    }
+  | {
+      action: 'auth.logout.completed';
+      actor: {
+        type: 'USER';
+        id: string;
+      };
+      scope: 'ALL_SESSIONS';
+      requestContext: AuthRequestContext;
     };

@@ -67,16 +67,29 @@ export class AuthController {
   async logout(
     @CurrentUser('id') userId: string,
     @Body() dto: RefreshTokenDto,
+    @Req() request: Request,
   ): Promise<void> {
-    await this.authService.logout(dto.refreshToken, userId);
+    await this.authService.logout(
+      dto.refreshToken,
+      userId,
+      request.ip,
+      request.get('user-agent'),
+    );
   }
 
   @Post('logout-all')
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Revoke all refresh tokens for the current user' })
-  async logoutAll(@CurrentUser() user: RequestUser): Promise<void> {
-    await this.authService.logoutAll(user.id);
+  async logoutAll(
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ): Promise<void> {
+    await this.authService.logoutAll(
+      user.id,
+      request.ip,
+      request.get('user-agent'),
+    );
   }
 
   @Get('me')

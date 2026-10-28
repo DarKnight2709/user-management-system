@@ -71,6 +71,25 @@ export const authSecurityEventSchema =
         sessionRef: idSchema,
         requestContext: authRequestContextSchema,
       }),
+      Joi.object({
+        action: Joi.string().valid('auth.logout.completed').required(),
+        actor: Joi.object({
+          type: Joi.string().valid('USER').required(),
+          id: idSchema,
+        }).required(),
+        scope: Joi.string().valid('SESSION_FAMILY').required(),
+        sessionRef: Joi.string().uuid(),
+        requestContext: authRequestContextSchema,
+      }),
+      Joi.object({
+        action: Joi.string().valid('auth.logout.completed').required(),
+        actor: Joi.object({
+          type: Joi.string().valid('USER').required(),
+          id: idSchema,
+        }).required(),
+        scope: Joi.string().valid('ALL_SESSIONS').required(),
+        requestContext: authRequestContextSchema,
+      }),
     )
     .required()
     .prefs({

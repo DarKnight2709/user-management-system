@@ -287,7 +287,12 @@ export class AuthService {
       throw error;
     }
   }
-  async logout(refreshToken: string, userId: string): Promise<void> {
+  async logout(
+    refreshToken: string,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
     if (!refreshToken) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -299,33 +304,45 @@ export class AuthService {
     if (payload.sub !== userId) {
       throw new UnauthorizedException('Invalid refresh token');
     }
-    await this.prisma.serializableTransaction(async (manager) => {
-      const token = await manager.refreshToken.findUnique({
-        where: { id: payload.jti },
-      });
-      if (!token) return;
-      if (
-        token.userId !== userId ||
-        token.userId !== payload.sub ||
-        token.refreshTokenHash !== this.hashToken(refreshToken)
-      ) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-      await manager.refreshToken.updateMany({
-        where: { familyId: token.familyId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-    });
+    const sessionRef = await this.prisma.serializableTransaction(
+      async (manager) => {
+        const token = await manager.refreshToken.findUnique({
+          where: { id: payload.jti },
+        });
+        if (!token) return undefined;
+        if (
+          token.userId !== userId ||
+          token.userId !== payload.sub ||
+          token.refreshTokenHash !== this.hashToken(refreshToken)
+        ) {
+          throw new UnauthorizedException('Invalid refresh token');
+        }
+        await manager.refreshToken.updateMany({
+          where: { familyId: token.familyId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        return token.familyId;
+      },
+    );
 
-    this.logger.log({
-      message: 'Logout completed',
-      event: 'auth.logout_completed',
-      userId,
-      scope: 'session_family',
+    this.loggingService.security({
+      action: 'auth.logout.completed',
+      actor: { type: 'USER', id: userId },
+      scope: 'SESSION_FAMILY',
+      sessionRef,
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
   }
 
-  async logoutAll(userId: string): Promise<void> {
+  async logoutAll(
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
     if (!userId) {
       throw new UnauthorizedException('Invalid user ID');
     }
@@ -353,11 +370,15 @@ export class AuthService {
       throw error;
     }
 
-    this.logger.log({
-      message: 'Logout completed',
-      event: 'auth.logout_completed',
-      userId,
-      scope: 'all_sessions',
+    this.loggingService.security({
+      action: 'auth.logout.completed',
+      actor: { type: 'USER', id: userId },
+      scope: 'ALL_SESSIONS',
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
   }
 

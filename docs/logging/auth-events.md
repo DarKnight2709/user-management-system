@@ -126,3 +126,26 @@ Một refresh token đã bị thu hồi được sử dụng lại; hệ thống
 - Ghi event sau khi transaction thu hồi token family đã commit.
 - Logging failure không khôi phục token đã thu hồi hoặc thay đổi kết quả từ chối.
 - Producer: AuthService sau transaction refresh-token reuse detection.
+
+## auth.logout.completed
+
+### Ý nghĩa
+
+Server đã hoàn tất yêu cầu thu hồi refresh session.
+
+### Dữ liệu
+
+- actor: USER đã xác thực.
+- scope: `SESSION_FAMILY` khi đăng xuất một phiên; `ALL_SESSIONS` khi đăng xuất mọi phiên.
+- sessionRef: familyId nếu bản ghi phiên được tìm thấy; không dùng để xác thực.
+- requestContext: requestId; IP/User-Agent nếu policy cho phép.
+- Không ghi refresh token.
+
+### Chính sách
+
+- Đích: Winston Console -> Docker -> Alloy -> Loki.
+- Không lưu event riêng vào PostgreSQL.
+- Chỉ phát event sau khi transaction thu hồi token commit.
+- Với logout một phiên không còn bản ghi, thao tác vẫn hoàn tất idempotently; sessionRef được bỏ qua.
+- Logging failure không thay đổi kết quả logout.
+- Producer: AuthService sau transaction logout/logout-all.
