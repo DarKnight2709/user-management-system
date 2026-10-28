@@ -6,6 +6,12 @@ type AuthRequestContext = {
 
 export type AuthSecurityEventInput =
   | {
+      action: 'auth.password.change_failed';
+      actor: { type: 'USER'; id: string };
+      reasonCode: 'INVALID_CURRENT_PASSWORD';
+      requestContext: AuthRequestContext;
+    }
+  | {
       action: 'auth.login.succeeded';
       actor: {
         type: 'USER';

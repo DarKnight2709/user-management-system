@@ -57,8 +57,14 @@ export class AuthController {
   async changePassword(
     @CurrentUser('id') userId: string,
     @Body() dto: ChangePasswordDto,
+    @Req() request: Request,
   ): Promise<void> {
-    await this.authService.changePassword(userId, dto);
+    await this.authService.changePassword(
+      userId,
+      dto,
+      request.ip,
+      request.get('user-agent'),
+    );
   }
 
   @Post('logout')

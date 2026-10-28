@@ -1,4 +1,5 @@
 export type AuthEventName =
+  | 'auth.password.change_failed'
   | 'auth.login.succeeded'
   | 'auth.login.failed'
   | 'auth.password.changed'
@@ -16,6 +17,7 @@ type AuthEventPolicy = {
   level: 'info' | 'warn';
 
   emitWhen:
+    | 'current-password-rejected'
     | 'authentication-completed-and-session-committed'
     | 'authentication-rejected'
     | 'password-change-committed'
@@ -27,6 +29,16 @@ type AuthEventPolicy = {
 };
 
 export const AUTH_EVENT_POLICIES = {
+  'auth.password.change_failed': {
+    schemaVersion: 1,
+    category: 'security',
+    output: 'winston-console',
+    persistToPostgres: false,
+    outcome: 'FAILURE',
+    level: 'warn',
+    emitWhen: 'current-password-rejected',
+    onLoggingFailure: 'preserve-authentication-result',
+  },
   'auth.login.succeeded': {
     schemaVersion: 1,
     category: 'security',

@@ -112,7 +112,12 @@ export class AuthService {
     });
   }
 
-  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId, deletedAt: null },
       select: { hashedPassword: true },
@@ -126,6 +131,16 @@ export class AuthService {
       user.hashedPassword,
     );
     if (!isCurrentPasswordValid) {
+      this.loggingService.security({
+        action: 'auth.password.change_failed',
+        actor: { type: 'USER', id: userId },
+        reasonCode: 'INVALID_CURRENT_PASSWORD',
+        requestContext: {
+          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          sourceIp: ipAddress,
+          userAgent,
+        },
+      });
       throw new UnauthorizedException('Invalid current password');
     }
 

@@ -1,5 +1,18 @@
 # Authentication event catalog
 
+## auth.password.change_failed
+
+- Trigger: so sánh mật khẩu hiện tại trả về không khớp, trước khi cập nhật dữ liệu.
+- actor: USER lấy từ danh tính đã xác thực của request.
+- reasonCode: INVALID_CURRENT_PASSWORD; outcome: FAILURE; level: warn.
+- requestContext: requestId, IP và User-Agent được lọc theo schema chung.
+- Không ghi mật khẩu hiện tại, mật khẩu mới, hash hoặc raw body.
+- Không phát event này cho lỗi database/bcrypt, tài khoản không còn tồn tại,
+  mật khẩu mới trùng mật khẩu cũ hoặc xung đột cập nhật.
+- Producer: AuthService tại nhánh từ chối mật khẩu hiện tại, ngoài transaction.
+- Lỗi logging không thay đổi phản hồi 401; chỉ xuất Winston -> Docker -> Alloy -> Loki.
+- Các application event auth.refresh_failed và auth.logout_failed được xử lý sau.
+
 ## Quy tắc chung
 
 - Category: security.
