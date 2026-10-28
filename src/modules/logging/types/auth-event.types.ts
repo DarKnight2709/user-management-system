@@ -32,4 +32,16 @@ export type AuthSecurityEventInput =
         id: string;
       };
       requestContext: AuthRequestContext;
+    }
+  | {
+      action: 'auth.refresh_token.reuse_detected';
+      actor: {
+        type: 'ANONYMOUS';
+      };
+      target: {
+        type: 'USER';
+        id: string;
+      };
+      sessionRef: string;
+      requestContext: AuthRequestContext;
     };

@@ -104,3 +104,25 @@ Không khẳng định client đã nhận response.
 - Chỉ phát event sau khi transaction commit.
 - Lỗi logging không đảo ngược việc đổi mật khẩu đã commit.
 - Producer: AuthService sau transaction đổi mật khẩu.
+
+## auth.refresh_token.reuse_detected
+
+### Ý nghĩa
+
+Một refresh token đã bị thu hồi được sử dụng lại; hệ thống đã thu hồi các token còn lại trong cùng family.
+
+### Dữ liệu
+
+- actor: ANONYMOUS, vì người gửi token đã bị từ chối xác thực.
+- target: USER gắn với bản ghi refresh token đã xác minh.
+- sessionRef: familyId, chỉ dùng liên kết log và không dùng để xác thực.
+- requestContext: requestId; IP/User-Agent nếu policy cho phép.
+- Không ghi raw refresh token.
+
+### Chính sách
+
+- Đích: Winston Console -> Docker -> Alloy -> Loki.
+- Không lưu event riêng vào PostgreSQL.
+- Ghi event sau khi transaction thu hồi token family đã commit.
+- Logging failure không khôi phục token đã thu hồi hoặc thay đổi kết quả từ chối.
+- Producer: AuthService sau transaction refresh-token reuse detection.

@@ -203,7 +203,11 @@ export class AuthService {
               where: { familyId: tokenEntity.familyId, revokedAt: null },
               data: { revokedAt: new Date() },
             });
-            return null;
+            return {
+              kind: 'reuse' as const,
+              userId: tokenEntity.userId,
+              sessionRef: tokenEntity.familyId,
+            };
           }
 
           // Check token validity
@@ -237,21 +241,31 @@ export class AuthService {
           );
 
           return {
+            kind: 'rotated' as const,
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
           };
         },
       );
 
-      if (!result) {
-        this.logger.warn({
-          message: 'Refresh token reuse detected',
-          event: 'auth.refresh_token_reuse_detected',
-          userId: payload.sub,
+      if (result.kind === 'reuse') {
+        this.loggingService.security({
+          action: 'auth.refresh_token.reuse_detected',
+          actor: { type: 'ANONYMOUS' },
+          target: { type: 'USER', id: result.userId },
+          sessionRef: result.sessionRef,
+          requestContext: {
+            requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            sourceIp: ipAddress,
+            userAgent,
+          },
         });
         throw new UnauthorizedException('Refresh token reuse detected');
       }
-      return result;
+      return {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+      };
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {
         throw new UnauthorizedException('Refresh token expired');

@@ -57,6 +57,20 @@ export const authSecurityEventSchema =
         }).required(),
         requestContext: authRequestContextSchema,
       }),
+      Joi.object({
+        action: Joi.string()
+          .valid('auth.refresh_token.reuse_detected')
+          .required(),
+        actor: Joi.object({
+          type: Joi.string().valid('ANONYMOUS').required(),
+        }).required(),
+        target: Joi.object({
+          type: Joi.string().valid('USER').required(),
+          id: idSchema,
+        }).required(),
+        sessionRef: idSchema,
+        requestContext: authRequestContextSchema,
+      }),
     )
     .required()
     .prefs({
