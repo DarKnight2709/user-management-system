@@ -14,6 +14,8 @@ import type { Prisma } from '@/generated/prisma/client.js';
 import jwt from 'jsonwebtoken';
 import { RegisterDto } from './dto/auth.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { LoggingService } from '../logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
 
 export interface JwtRefreshTokenPayload {
   sub: string;
@@ -29,6 +31,7 @@ export class AuthService {
     private readonly userService: UsersService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly loggingService: LoggingService,
   ) {}
   async validateUser(email: string, password: string) {
     const failureLog = {
@@ -61,6 +64,8 @@ export class AuthService {
   }
 
   async login(user: RequestUser, ipAddress?: string, userAgent?: string) {
+    const familyId = randomUUID();
+    const requestId = requestContext.getStore()?.requestId ?? randomUUID();
     const accessToken = this.generateAccessToken(user);
     const refreshToken = await this.prisma.serializableTransaction(
       async (manager) => {
@@ -73,13 +78,24 @@ export class AuthService {
           ipAddress,
           userAgent,
           manager,
+          familyId,
         );
       },
     );
-    this.logger.log({
-      message: 'Login succeeded',
-      event: 'auth.login_succeeded',
-      userId: user.id,
+
+    this.loggingService.security({
+      action: 'auth.login.succeeded',
+      actor: {
+        type: 'USER',
+        id: user.id,
+      },
+      authMethod: 'PASSWORD',
+      sessionRef: familyId,
+      requestContext: {
+        requestId,
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
     return { accessToken, refreshToken };
   }
