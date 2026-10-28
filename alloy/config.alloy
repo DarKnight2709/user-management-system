@@ -1,0 +1,54 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// Khám phá tất cả container Docker đang chạy
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+
+  filter {
+    name   = "label"
+    values = ["com.ums.logs=true"]
+  }
+}
+
+// Gắn label cho log cho dễ tìm
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+// Thu thập log từ Docker
+loki.source.docker "docker_logs" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_logs.output
+  forward_to = [loki.process.filter.receiver]
+}
+
+// Xử lý log (lọc bớt log của chính hệ thống monitoring)
+loki.process "filter" {
+  forward_to = [loki.write.local.receiver]
+}
+
+// Gửi log về Loki
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
