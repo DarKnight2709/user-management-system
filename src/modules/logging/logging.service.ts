@@ -8,6 +8,9 @@ import { parseAuthSecurityEvent } from './schemas/auth-event.schema.js';
 
 import { AUTH_EVENT_POLICIES } from './policies/auth-event.policy.js';
 import { ConfigService } from '@nestjs/config';
+import type { ApplicationEventInput } from './types/application-event.types.js';
+import { parseApplicationEvent } from './schemas/application-event.schema.js';
+import { APPLICATION_EVENT_POLICIES } from './policies/application-event.policy.js';
 
 type EventEnvelope = {
   eventId: string;
@@ -61,21 +64,23 @@ export class LoggingService implements OnModuleDestroy {
    * - Không ghi PostgreSQL.
    * - Lỗi logging không thay đổi kết quả nghiệp vụ.
    */
-  // application(input: ApplicationInput): void {
-  //   try {
-  //     const parsed = applicationInputSchema.parse(input);
-  //     const { level, metadata, ...body } = parsed;
+  application(input: ApplicationEventInput): void {
+    try {
+      const event = parseApplicationEvent(input);
+      const policy = APPLICATION_EVENT_POLICIES[event.event];
 
-  //     this.writeConsole(level, {
-  //       ...body,
-  //       metadata: metadata ? this.redactMetadata(metadata) : undefined,
-  //       ...this.envelope(),
-  //       category: 'application',
-  //     });
-  //   } catch {
-  //     this.reportFailure('APPLICATION_LOG_FAILED');
-  //   }
-  // }
+      this.writeConsole(policy.level, {
+        ...event,
+        ...this.envelope(),
+        context: 'LoggingService',
+        schemaVersion: policy.schemaVersion,
+        category: policy.category,
+        message: policy.message,
+      });
+    } catch {
+      this.reportFailure('APPLICATION_LOG_FAILED');
+    }
+  }
 
   /**
    * Security:
