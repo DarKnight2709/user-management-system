@@ -6,10 +6,9 @@
 them through Winston Console -> Docker -> Alloy -> Loki. It does not persist
 events to PostgreSQL or wait for Loki acknowledgement.
 
-The catalog defines the two existing Auth operational events below.
-AuthService sends both auth.refresh_failed and auth.logout_failed through
-LoggingService.application(). Both retain the original thrown operation error.
-This is not yet a replacement for all application log producers.
+The catalog covers HTTP summaries, safe exception diagnostics and the two Auth
+operational events below. It is not yet a replacement for every application log
+producer.
 
 ## HTTP request summaries
 
@@ -22,7 +21,19 @@ This is not yet a replacement for all application log producers.
   only means the backend handed off the response; it does not prove receipt.
 - Raw URL, query, headers, body, cookies, tokens and raw errors are excluded.
 - Unknown HTTP methods become `OTHER`; unsafe route templates become `[unmatched]`.
-- Exception-filter diagnostics remain a separate migration step.
+
+## Exception diagnostics
+
+- AllExceptionsFilter emits `http.operational_error` only for HttpExceptions
+  carrying a cause, `http.payload_too_large` for parser 413 errors and
+  `http.unhandled_error` for unexpected values.
+- PrismaClientExceptionFilter emits `database.unhandled_error` only for known
+  Prisma request codes that do not have an explicit HTTP mapping.
+- Diagnostics and the middleware summary may share a request ID. The diagnostic
+  describes the cause; the summary records the final status and duration.
+- Diagnostic payloads exclude exception messages, causes, request URLs and Prisma
+  metadata. Unexpected errors may include at most 32 call-site-only stack frames.
+- Existing safe HTTP responses and known Prisma mappings are unchanged.
 
 ## Input and failure handling
 

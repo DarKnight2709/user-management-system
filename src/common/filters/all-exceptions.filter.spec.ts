@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HttpException, Logger, type ArgumentsHost } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
+import { HttpException, type ArgumentsHost } from '@nestjs/common';
 import type { HttpAdapterHost } from '@nestjs/core';
 import { AllExceptionsFilter } from './all-exceptions.filter.js';
+import type { LoggingService } from '@/modules/logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
+
+const requestId = '11111111-1111-4111-8111-111111111111';
 
 function fixture() {
   const response = {};
@@ -16,8 +20,11 @@ function fixture() {
       getResponse: () => response,
     }),
   } as unknown as ArgumentsHost;
+  const application = vi.fn();
+  const logging = { application } as unknown as LoggingService;
   return {
-    filter: new AllExceptionsFilter(adapter),
+    filter: new AllExceptionsFilter(adapter, logging),
+    application,
     host,
     reply,
     response,
@@ -26,30 +33,24 @@ function fixture() {
 }
 
 describe('AllExceptionsFilter safe logging', () => {
-  afterEach(() => vi.restoreAllMocks());
-
   it('keeps stack frames and standard error type without logging messages, URLs or properties', () => {
-    const log = vi
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation(() => {});
-    const { filter, host, reply, response, path } = fixture();
+    const { filter, host, reply, response, path, application } = fixture();
     const error = new TypeError('password=private-password');
     error.stack =
       'TypeError: password=private-password\nSQL values private-query\n    at changePassword (users.service.ts:20:5)\n    at controller (users.controller.ts:10:3)';
     Object.assign(error, { token: 'private-token' });
-    filter.catch(error, host);
-    expect(log).toHaveBeenCalledWith(
-      {
-        message: 'Unhandled request error',
-        event: 'http.unhandled_error',
-        statusCode: 500,
-        errorType: 'TypeError',
-        stack:
-          '    at changePassword (users.service.ts:20:5)\n    at controller (users.controller.ts:10:3)',
-      },
-      undefined,
-    );
-    expect(JSON.stringify(log.mock.calls)).not.toContain('private-');
+    requestContext.run({ requestId }, () => filter.catch(error, host));
+    expect(application).toHaveBeenCalledExactlyOnceWith({
+      event: 'http.unhandled_error',
+      statusCode: 500,
+      errorType: 'TypeError',
+      stackFrames: [
+        '    at changePassword (users.service.ts:20:5)',
+        '    at controller (users.controller.ts:10:3)',
+      ],
+      requestContext: { requestId },
+    });
+    expect(JSON.stringify(application.mock.calls)).not.toContain('private-');
     expect(reply).toHaveBeenCalledWith(
       response,
       {
@@ -66,32 +67,19 @@ describe('AllExceptionsFilter safe logging', () => {
   it.each([400, 503])(
     'logs safe HTTP cause metadata with severity appropriate to %i and preserves the response',
     (status) => {
-      const errorLog = vi
-        .spyOn(Logger.prototype, 'error')
-        .mockImplementation(() => {});
-      const warnLog = vi
-        .spyOn(Logger.prototype, 'warn')
-        .mockImplementation(() => {});
-      const { filter, host, reply, response, path } = fixture();
+      const { filter, host, reply, response, path, application } = fixture();
       const cause: Record<string, unknown> = { password: 'private-password' };
       cause.self = cause;
       const body = { message: 'Safe public message', code: 'FIXTURE_CODE' };
-      filter.catch(new HttpException(body, status, { cause }), host);
-      const expected = {
-        message: 'HTTP request failed',
+      requestContext.run({ requestId }, () =>
+        filter.catch(new HttpException(body, status, { cause }), host),
+      );
+      expect(application).toHaveBeenCalledExactlyOnceWith({
         event: 'http.operational_error',
         statusCode: status,
-      };
-      if (status >= 500) {
-        expect(errorLog).toHaveBeenCalledWith(expected, undefined);
-        expect(warnLog).not.toHaveBeenCalled();
-      } else {
-        expect(warnLog).toHaveBeenCalledWith(expected);
-        expect(errorLog).not.toHaveBeenCalled();
-      }
-      expect(
-        JSON.stringify([errorLog.mock.calls, warnLog.mock.calls]),
-      ).not.toContain('private-');
+        requestContext: { requestId },
+      });
+      expect(JSON.stringify(application.mock.calls)).not.toContain('private-');
       expect(reply).toHaveBeenCalledWith(
         response,
         {
@@ -106,21 +94,48 @@ describe('AllExceptionsFilter safe logging', () => {
   );
 
   it('does not stringify non-Error values or expose a custom error name', () => {
-    const log = vi
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation(() => {});
-    const { filter, host } = fixture();
+    const { filter, host, application } = fixture();
     const value = {
       toString() {
         throw new Error('private-value');
       },
     };
-    expect(() => filter.catch(value, host)).not.toThrow();
-    expect(log.mock.calls[0][0]).toMatchObject({ errorType: 'NonError' });
+    expect(() =>
+      requestContext.run({ requestId }, () => filter.catch(value, host)),
+    ).not.toThrow();
+    expect(application.mock.calls[0][0]).toMatchObject({
+      errorType: 'NonError',
+    });
     const error = new Error('private-message');
     error.name = 'private-custom-name';
-    filter.catch(error, host);
-    expect(log.mock.calls[1][0]).toMatchObject({ errorType: 'Error' });
-    expect(JSON.stringify(log.mock.calls)).not.toContain('private-');
+    requestContext.run({ requestId }, () => filter.catch(error, host));
+    expect(application.mock.calls[1][0]).toMatchObject({ errorType: 'Error' });
+    expect(JSON.stringify(application.mock.calls)).not.toContain('private-');
+  });
+
+  it('classifies parser size errors without exposing parser diagnostics', () => {
+    const { filter, host, application, reply, response, path } = fixture();
+    const error = Object.assign(new Error('private-parser-message'), {
+      type: 'entity.too.large',
+      status: 413,
+    });
+    requestContext.run({ requestId }, () => filter.catch(error, host));
+    expect(application).toHaveBeenCalledExactlyOnceWith({
+      event: 'http.payload_too_large',
+      statusCode: 413,
+      requestContext: { requestId },
+    });
+    expect(JSON.stringify(application.mock.calls)).not.toContain('private-');
+    expect(reply).toHaveBeenCalledWith(
+      response,
+      {
+        statusCode: 413,
+        error: 'Payload Too Large',
+        message: 'Request body exceeds the allowed size',
+        timestamp: expect.any(String),
+        path,
+      },
+      413,
+    );
   });
 });

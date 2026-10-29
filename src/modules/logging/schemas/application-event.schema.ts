@@ -55,6 +55,48 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
       outcome: Joi.string().valid('aborted').required(),
     }),
     Joi.object({
+      event: Joi.string().valid('http.operational_error').required(),
+      statusCode: Joi.number().integer().min(400).max(599).required(),
+      requestContext: requestContextSchema,
+    }),
+    Joi.object({
+      event: Joi.string().valid('http.payload_too_large').required(),
+      statusCode: Joi.number().valid(413).required(),
+      requestContext: requestContextSchema,
+    }),
+    Joi.object({
+      event: Joi.string().valid('http.unhandled_error').required(),
+      statusCode: Joi.number().valid(500).required(),
+      errorType: Joi.string()
+        .valid(
+          'Error',
+          'TypeError',
+          'RangeError',
+          'ReferenceError',
+          'SyntaxError',
+          'URIError',
+          'EvalError',
+          'AggregateError',
+          'NonError',
+        )
+        .required(),
+      stackFrames: Joi.array()
+        .items(
+          Joi.string()
+            .pattern(/^\s*at /)
+            .max(1024),
+        )
+        .max(32),
+      requestContext: requestContextSchema,
+    }),
+    Joi.object({
+      event: Joi.string().valid('database.unhandled_error').required(),
+      code: Joi.string()
+        .pattern(/^P\d{4}$/)
+        .required(),
+      requestContext: requestContextSchema,
+    }),
+    Joi.object({
       event: Joi.string().valid('auth.refresh_failed').required(),
       requestContext: requestContextSchema,
     }),

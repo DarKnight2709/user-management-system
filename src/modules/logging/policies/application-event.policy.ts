@@ -29,6 +29,42 @@ export const APPLICATION_EVENT_POLICIES = {
     persistToPostgres: false,
     onLoggingFailure: 'preserve-operation-result',
   },
+  'http.operational_error': {
+    schemaVersion: 1,
+    category: 'application',
+    level: 'warn',
+    message: 'HTTP request failed',
+    output: 'winston-console',
+    persistToPostgres: false,
+    onLoggingFailure: 'preserve-operation-result',
+  },
+  'http.payload_too_large': {
+    schemaVersion: 1,
+    category: 'application',
+    level: 'warn',
+    message: 'Request body exceeds the allowed size',
+    output: 'winston-console',
+    persistToPostgres: false,
+    onLoggingFailure: 'preserve-operation-result',
+  },
+  'http.unhandled_error': {
+    schemaVersion: 1,
+    category: 'application',
+    level: 'error',
+    message: 'Unhandled request error',
+    output: 'winston-console',
+    persistToPostgres: false,
+    onLoggingFailure: 'preserve-operation-result',
+  },
+  'database.unhandled_error': {
+    schemaVersion: 1,
+    category: 'application',
+    level: 'error',
+    message: 'Unhandled database error',
+    output: 'winston-console',
+    persistToPostgres: false,
+    onLoggingFailure: 'preserve-operation-result',
+  },
   'auth.refresh_failed': {
     schemaVersion: 1,
     category: 'application',
@@ -58,6 +94,9 @@ export function applicationEventLevel(
   if (event.event === 'http.request.completed') {
     if (event.statusCode >= 500) return 'error';
     if (event.statusCode >= 400) return 'warn';
+  }
+  if (event.event === 'http.operational_error' && event.statusCode >= 500) {
+    return 'error';
   }
   return APPLICATION_EVENT_POLICIES[event.event].level;
 }

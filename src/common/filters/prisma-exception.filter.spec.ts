@@ -1,8 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Logger, type ArgumentsHost } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
+import type { ArgumentsHost } from '@nestjs/common';
 import type { HttpAdapterHost } from '@nestjs/core';
 import { Prisma } from '@/generated/prisma/client.js';
 import { PrismaClientExceptionFilter } from './prisma-exception.filter.js';
+import type { LoggingService } from '@/modules/logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
+
+const requestId = '11111111-1111-4111-8111-111111111111';
 
 function fixture() {
   const response = {};
@@ -16,8 +20,11 @@ function fixture() {
       getResponse: () => response,
     }),
   } as unknown as ArgumentsHost;
+  const application = vi.fn();
+  const logging = { application } as unknown as LoggingService;
   return {
-    filter: new PrismaClientExceptionFilter(adapter),
+    filter: new PrismaClientExceptionFilter(adapter, logging),
+    application,
     host,
     reply,
     response,
@@ -25,13 +32,8 @@ function fixture() {
 }
 
 describe('PrismaClientExceptionFilter safe logging', () => {
-  afterEach(() => vi.restoreAllMocks());
-
   it('logs only a fixed event and Prisma code for an unhandled error', () => {
-    const log = vi
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation(() => {});
-    const { filter, host, reply, response } = fixture();
+    const { filter, host, reply, response, application } = fixture();
     const error = new Prisma.PrismaClientKnownRequestError(
       'SQL diagnostic password=private-password',
       {
@@ -40,16 +42,13 @@ describe('PrismaClientExceptionFilter safe logging', () => {
         meta: { table: 'private-table', token: 'private-token' },
       },
     );
-    filter.catch(error, host);
-    expect(log).toHaveBeenCalledExactlyOnceWith(
-      {
-        message: 'Unhandled database error',
-        event: 'database.unhandled_error',
-        code: 'P2021',
-      },
-      undefined,
-    );
-    expect(JSON.stringify(log.mock.calls)).not.toContain('private-');
+    requestContext.run({ requestId }, () => filter.catch(error, host));
+    expect(application).toHaveBeenCalledExactlyOnceWith({
+      event: 'database.unhandled_error',
+      code: 'P2021',
+      requestContext: { requestId },
+    });
+    expect(JSON.stringify(application.mock.calls)).not.toContain('private-');
     expect(reply).toHaveBeenCalledWith(
       response,
       {
@@ -88,19 +87,18 @@ describe('PrismaClientExceptionFilter safe logging', () => {
   ])(
     'preserves the existing HTTP mapping for $code',
     ({ code, meta, status, error, message }) => {
-      const log = vi
-        .spyOn(Logger.prototype, 'error')
-        .mockImplementation(() => {});
-      const { filter, host, reply, response } = fixture();
-      filter.catch(
-        new Prisma.PrismaClientKnownRequestError('private-diagnostic', {
-          code,
-          meta,
-          clientVersion: 'fixture',
-        }),
-        host,
+      const { filter, host, reply, response, application } = fixture();
+      requestContext.run({ requestId }, () =>
+        filter.catch(
+          new Prisma.PrismaClientKnownRequestError('private-diagnostic', {
+            code,
+            meta,
+            clientVersion: 'fixture',
+          }),
+          host,
+        ),
       );
-      expect(log).not.toHaveBeenCalled();
+      expect(application).not.toHaveBeenCalled();
       expect(reply).toHaveBeenCalledWith(
         response,
         {

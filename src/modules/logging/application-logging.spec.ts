@@ -37,6 +37,33 @@ describe('Application logging boundaries', () => {
   });
 
   it.each([
+    {
+      event: 'http.operational_error',
+      statusCode: 503,
+      requestContext: { requestId },
+    },
+    {
+      event: 'http.payload_too_large',
+      statusCode: 413,
+      requestContext: { requestId },
+    },
+    {
+      event: 'http.unhandled_error',
+      statusCode: 500,
+      errorType: 'TypeError',
+      stackFrames: ['    at handler (fixture.ts:1:1)'],
+      requestContext: { requestId },
+    },
+    {
+      event: 'database.unhandled_error',
+      code: 'P2021',
+      requestContext: { requestId },
+    },
+  ])('accepts the safe diagnostic event $event', (input) => {
+    expect(parseApplicationEvent(input)).toEqual(input);
+  });
+
+  it.each([
     { event: 'unknown-secret-event', requestContext: { requestId } },
     { ...event, requestContext: { requestId: 'secret-token' } },
     {
@@ -79,6 +106,25 @@ describe('Application logging boundaries', () => {
       occurredAt: expect.any(String),
     });
     expect(JSON.stringify(log.mock.calls)).not.toContain('secret-message');
+  });
+
+  it('raises caused server-side HTTP diagnostics to error level', () => {
+    const log = vi.fn();
+    const logger = { on: vi.fn(), off: vi.fn(), log } as unknown as Logger;
+    const service = new LoggingService(
+      logger,
+      new ConfigService({ NODE_ENV: 'test' }),
+    );
+    service.application({
+      event: 'http.operational_error',
+      statusCode: 503,
+      requestContext: { requestId },
+    });
+    expect(log.mock.calls[0][0]).toMatchObject({
+      event: 'http.operational_error',
+      level: 'error',
+      message: 'HTTP request failed',
+    });
   });
 
   it('contains logger failures and emits only one safe fallback', () => {
