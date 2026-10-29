@@ -6,9 +6,25 @@
 them through Winston Console -> Docker -> Alloy -> Loki. It does not persist
 events to PostgreSQL or wait for Loki acknowledgement.
 
-The catalog covers HTTP summaries, safe exception diagnostics and the two Auth
-operational events below. It is not yet a replacement for every application log
+The catalog covers HTTP summaries, safe exception diagnostics, database and
+background-worker diagnostics, Auth operational events, and bootstrap/shutdown
+lifecycle events. It is not yet a replacement for every application log
 producer.
+
+## Application lifecycle
+
+- `main.ts` emits `application.started` after the HTTP server starts listening;
+  it records the configured port.
+- The graceful-shutdown coordinator emits `application.shutdown_started` before
+  calling `app.close(signal)`, and `application.shutdown_failed` if Nest cleanup
+  rejects. Both events include the received SIGINT/SIGTERM signal.
+- Lifecycle events use the application catalog and Winston Console. The
+  coordinator treats logging as best-effort so a logging failure cannot block
+  cleanup.
+- Winston flush still happens only after `app.close(signal)` completes. The raw
+  Winston logger is retained there solely to perform that final flush.
+- A flush timeout/failure is not logged through Winston because it may already
+  be ending; the coordinator exits unsuccessfully instead.
 
 ## HTTP request summaries
 

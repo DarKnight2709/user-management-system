@@ -241,6 +241,16 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
       version: Joi.number().integer().min(1).required(),
     }),
     Joi.object({
+      event: Joi.string().valid('application.started').required(),
+      port: Joi.number().integer().min(1).max(65_535).required(),
+    }),
+    Joi.object({
+      event: Joi.string()
+        .valid('application.shutdown_started', 'application.shutdown_failed')
+        .required(),
+      signal: Joi.string().valid('SIGINT', 'SIGTERM').required(),
+    }),
+    Joi.object({
       event: Joi.string().valid('auth.refresh_failed').required(),
       requestContext: requestContextSchema,
     }),

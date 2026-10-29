@@ -135,8 +135,52 @@ describe('Application logging boundaries', () => {
       invitationId: userId,
       version: 3,
     },
+    { event: 'application.started', port: 3000 },
+    { event: 'application.shutdown_started', signal: 'SIGINT' },
+    { event: 'application.shutdown_failed', signal: 'SIGTERM' },
   ])('accepts the safe diagnostic event $event', (input) => {
     expect(parseApplicationEvent(input)).toEqual(input);
+  });
+
+  it('uses catalog policy for application lifecycle events', () => {
+    const log = vi.fn();
+    const logger = { on: vi.fn(), off: vi.fn(), log } as unknown as Logger;
+    const service = new LoggingService(
+      logger,
+      new ConfigService({ NODE_ENV: 'test' }),
+    );
+
+    service.application({ event: 'application.started', port: 3000 });
+    service.application({
+      event: 'application.shutdown_started',
+      signal: 'SIGTERM',
+    });
+    service.application({
+      event: 'application.shutdown_failed',
+      signal: 'SIGTERM',
+    });
+
+    expect(log.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        event: 'application.started',
+        category: 'application',
+        level: 'info',
+        message: 'Application started',
+        port: 3000,
+      }),
+      expect.objectContaining({
+        event: 'application.shutdown_started',
+        level: 'info',
+        message: 'Application shutdown started',
+        signal: 'SIGTERM',
+      }),
+      expect.objectContaining({
+        event: 'application.shutdown_failed',
+        level: 'error',
+        message: 'Application shutdown failed',
+        signal: 'SIGTERM',
+      }),
+    ]);
   });
 
   it('strips recipient and capability data from invitation diagnostics', () => {

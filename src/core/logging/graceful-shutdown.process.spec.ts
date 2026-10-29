@@ -28,7 +28,14 @@ describe('Shutdown in a separate Node process', () => {
       class FixtureModule {}
       Module({ providers: [FixtureWorker] })(FixtureModule);
       const app = await NestFactory.createApplicationContext(FixtureModule, { logger: new WinstonLogger(logger) });
-      registerGracefulShutdown(app, logger);
+      registerGracefulShutdown(app, logger, (event) => {
+        logger.info({
+          ...event,
+          category: 'application',
+          schemaVersion: 1,
+          message: event.event,
+        });
+      });
       process.emit('${signal}');
     `;
       const result = await new Promise<{

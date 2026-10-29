@@ -99,6 +99,14 @@ export type ApplicationEventInput =
       version: number;
     }
   | {
+      event: 'application.started';
+      port: number;
+    }
+  | {
+      event: 'application.shutdown_started' | 'application.shutdown_failed';
+      signal: 'SIGINT' | 'SIGTERM';
+    }
+  | {
       event: 'auth.refresh_failed';
       requestContext: ApplicationRequestContext;
     }

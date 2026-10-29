@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { Injectable, Logger, Module } from '@nestjs/common';
+import { Injectable, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { createLogger, transports } from 'winston';
 import { flushLogger } from './flush-logger.js';
@@ -14,14 +14,13 @@ class FixtureProcess extends EventEmitter {
 function fixture() {
   const platform = new FixtureProcess();
   const logger = createLogger({ transports: [new transports.Console()] });
-  return { platform, logger };
+  const writeShutdownEvent = vi.fn();
+  return { platform, logger, writeShutdownEvent };
 }
 
 describe('Graceful shutdown coordinator', () => {
   beforeEach(() => {
     vi.mocked(flushLogger).mockReset().mockResolvedValue('flushed');
-    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
-    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -34,7 +33,7 @@ describe('Graceful shutdown coordinator', () => {
   ] as const)(
     'handles %s once and waits for close and flush before exit',
     async (signal, code) => {
-      const { platform, logger } = fixture();
+      const { platform, logger, writeShutdownEvent } = fixture();
       let finishClose!: () => void;
       let finishFlush!: () => void;
       const close = vi.fn(
@@ -49,12 +48,19 @@ describe('Graceful shutdown coordinator', () => {
             finishFlush = () => resolve('flushed');
           }),
       );
-      const coordinator = registerGracefulShutdown({ close }, logger, {
-        platform,
-      });
+      const coordinator = registerGracefulShutdown(
+        { close },
+        logger,
+        writeShutdownEvent,
+        { platform },
+      );
       platform.emit(signal);
       platform.emit(signal === 'SIGINT' ? 'SIGTERM' : 'SIGINT');
       expect(close).toHaveBeenCalledExactlyOnceWith(signal);
+      expect(writeShutdownEvent).toHaveBeenCalledWith({
+        event: 'application.shutdown_started',
+        signal,
+      });
       expect(flushLogger).not.toHaveBeenCalled();
       finishClose();
       await vi.waitFor(() => expect(flushLogger).toHaveBeenCalledOnce());
@@ -69,27 +75,58 @@ describe('Graceful shutdown coordinator', () => {
   );
 
   it('does not end the logger if application cleanup rejects', async () => {
-    const { platform, logger } = fixture();
+    const { platform, logger, writeShutdownEvent } = fixture();
     const close = vi
       .fn()
       .mockRejectedValue(new Error('Fixture private failure'));
-    const coordinator = registerGracefulShutdown({ close }, logger, {
-      platform,
-    });
+    const coordinator = registerGracefulShutdown(
+      { close },
+      logger,
+      writeShutdownEvent,
+      { platform },
+    );
     await coordinator.shutdown('SIGTERM');
     expect(flushLogger).not.toHaveBeenCalled();
+    expect(writeShutdownEvent).toHaveBeenCalledWith({
+      event: 'application.shutdown_failed',
+      signal: 'SIGTERM',
+    });
     expect(platform.exit).toHaveBeenCalledExactlyOnceWith(1);
+    logger.close();
+  });
+
+  it('continues shutdown if lifecycle event logging throws', async () => {
+    const { platform, logger, writeShutdownEvent } = fixture();
+    writeShutdownEvent.mockImplementation(() => {
+      throw new Error('Fixture logging failure');
+    });
+    const coordinator = registerGracefulShutdown(
+      { close: vi.fn().mockResolvedValue(undefined) },
+      logger,
+      writeShutdownEvent,
+      { platform },
+    );
+
+    await coordinator.shutdown('SIGTERM');
+
+    expect(writeShutdownEvent).toHaveBeenCalledWith({
+      event: 'application.shutdown_started',
+      signal: 'SIGTERM',
+    });
+    expect(flushLogger).toHaveBeenCalledOnce();
+    expect(platform.exit).toHaveBeenCalledExactlyOnceWith(143);
     logger.close();
   });
 
   it.each(['failed', 'timeout'] as const)(
     'exits unsuccessfully if flushing reports %s',
     async (result) => {
-      const { platform, logger } = fixture();
+      const { platform, logger, writeShutdownEvent } = fixture();
       vi.mocked(flushLogger).mockResolvedValue(result);
       const coordinator = registerGracefulShutdown(
         { close: vi.fn().mockResolvedValue(undefined) },
         logger,
+        writeShutdownEvent,
         { platform },
       );
       await coordinator.shutdown('SIGTERM');
@@ -100,7 +137,7 @@ describe('Graceful shutdown coordinator', () => {
 
   it('bounds total shutdown and ignores late completion after the deadline', async () => {
     vi.useFakeTimers();
-    const { platform, logger } = fixture();
+    const { platform, logger, writeShutdownEvent } = fixture();
     let finishClose!: () => void;
     const close = vi.fn(
       () =>
@@ -108,10 +145,12 @@ describe('Graceful shutdown coordinator', () => {
           finishClose = resolve;
         }),
     );
-    const coordinator = registerGracefulShutdown({ close }, logger, {
-      platform,
-      shutdownTimeoutMs: 100,
-    });
+    const coordinator = registerGracefulShutdown(
+      { close },
+      logger,
+      writeShutdownEvent,
+      { platform, shutdownTimeoutMs: 100 },
+    );
     const pending = coordinator.shutdown('SIGTERM');
     await vi.advanceTimersByTimeAsync(100);
     expect(platform.exit).toHaveBeenCalledExactlyOnceWith(1);
@@ -143,12 +182,17 @@ describe('Graceful shutdown coordinator', () => {
     class FixtureModule {}
     const app = await NestFactory.create(FixtureModule, { logger: false });
     await app.init();
-    const { platform, logger } = fixture();
+    const { platform, logger, writeShutdownEvent } = fixture();
     vi.mocked(flushLogger).mockImplementation(async () => {
       events.push('flush');
       return 'flushed';
     });
-    const coordinator = registerGracefulShutdown(app, logger, { platform });
+    const coordinator = registerGracefulShutdown(
+      app,
+      logger,
+      writeShutdownEvent,
+      { platform },
+    );
     await coordinator.shutdown('SIGTERM');
     expect(events).toEqual([
       'worker stopped',
