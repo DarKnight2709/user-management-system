@@ -51,7 +51,7 @@ application runtime.
 
 ## Verification and deployment still pending
 
-- Exercise HTTP abort, expected 4xx and unexpected 5xx after migration.
+- Exercise HTTP abort and unexpected 5xx after migration.
 - Verify the remaining diagnostic families and sensitive-data exclusions in Loki.
 - Verify Loki retention actually deletes old data; seven days remains a target.
 - Verify restart persistence and collector recovery with existing volumes.
@@ -68,10 +68,19 @@ application runtime.
 - Sent SIGTERM with a 40-second Docker grace period. The backend emitted
   `application.shutdown_started`, Loki received it, and the backend was started
   again successfully.
+- An unauthenticated `/auth/me` request returned 401 and its status appeared in
+  the HTTP completion log in Loki. A 102401-byte body sent to `/auth/login`
+  returned 413 and produced the payload-too-large diagnostic in Loki.
+- The oversized request included the synthetic marker
+  `SAFE_LOG_REDACTION_SENTINEL_20261029`; searching Loki for it returned no
+  records. This checks that this request body was not logged, not all possible
+  secret-redaction paths.
+- Loki config has `retention_enabled: true` and `retention_period: 168h`. Actual
+  deletion of data older than seven days has not been observed.
 - After backend replacement, Alloy continued querying the old Docker container
   ID during this check. Restarting Alloy refreshed discovery and the new
   backend's events then appeared in Loki. This observation is local only and
   should be rechecked during normal deployment/restart behavior.
-- This did not verify production JSON output, all event families, sensitive
-  data exclusion under real failures, `application.shutdown_failed`, or actual
-  Loki retention deletion.
+- This did not verify production JSON output, all event families, HTTP abort,
+  unexpected 5xx diagnostics, `application.shutdown_failed`, comprehensive
+  sensitive-data exclusion, or actual Loki retention deletion.
