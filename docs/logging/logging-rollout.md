@@ -16,8 +16,8 @@ Inventory date: 2026-10-29. This file tracks code inspection, not production ver
 
 | Order | Producer                                            | Current state                                                                                                    | Next work                                                                                                                |
 | ----- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 1     | common/middlewares/logger.middleware.ts             | Implemented: application events for completed/aborted requests                                                   | Verify in Loki; regression tests cover finish/close, severity, null abort status and safe correlation                    |
-| 2     | common/filters/all-exceptions.filter.ts             | Implemented: cataloged safe diagnostics for caused HTTP errors and unexpected errors                             | Verify correlation and safe stack-frame rendering in Loki                                                                |
+| 1     | common/middlewares/logger.middleware.ts             | Implemented: application events for completed/aborted requests                                                   | Production proxy disconnect behavior remains unverified; unit tests cover finish/close and correlation                   |
+| 2     | common/filters/all-exceptions.filter.ts             | Implemented: cataloged safe diagnostics for caused HTTP errors and unexpected errors                             | Production error-path behavior remains unverified                                                                        |
 | 2     | common/middlewares/body-parser-error.middleware.ts  | Implemented: handles malformed/oversized request bodies before Nest routes; logs safe 400/413 events             | Production proxy/error-path behavior remains unverified                                                                  |
 | 2     | common/filters/prisma-exception.filter.ts           | Implemented: cataloged unhandled known-Prisma-code diagnostics                                                   | Verify correlation in Loki; known HTTP mappings remain log-free here                                                     |
 | 3     | core/database/prisma.service.ts                     | Implemented: cataloged driver/query diagnostics through application logging                                      | Verify debug filtering, slow-query grouping and optional HTTP correlation in Loki                                        |
@@ -52,8 +52,8 @@ application runtime.
 
 ## Verification and deployment still pending
 
-- Exercise HTTP abort and unexpected 5xx after migration.
 - Verify the remaining diagnostic families and sensitive-data exclusions in Loki.
+- Verify HTTP disconnect and error behavior through the production reverse proxy.
 - Verify Loki retention actually deletes old data; seven days remains a target.
 - Verify restart persistence and collector recovery with existing volumes.
 - Audit persistence and business-transaction integration remain a separate phase.
@@ -76,6 +76,14 @@ application runtime.
   returned a fixed 400 response with `X-Request-ID`; Loki contained the matching
   `http.payload_invalid` event. The 102401-byte request still returned 413 and
   Loki contained `http.payload_too_large`.
+- Cancelled eight local read-only `/health/ready` requests from the client; Loki
+  recorded five `http.request.aborted` events with `outcome: aborted` and
+  `statusCode: null`. This does not verify disconnect behavior through the
+  production reverse proxy.
+- A temporary local-only error route returned a sanitized 500 and Loki recorded
+  `http.unhandled_error` correlated by request ID. The raw synthetic exception
+  message was absent from Loki. The route was removed immediately, the clean
+  backend was rebuilt, and the test path returned 404 afterward.
 - Temporarily stopping only the local UMS PostgreSQL container made
   `/health/ready` return 503; Loki recorded the status. Starting PostgreSQL again
   restored readiness to 200. No database data was modified.
@@ -92,6 +100,6 @@ application runtime.
   ID during this check. Restarting Alloy refreshed discovery and the new
   backend's events then appeared in Loki. This observation is local only and
   should be rechecked during normal deployment/restart behavior.
-- This did not verify production JSON output, all event families, HTTP abort,
-  unexpected 5xx diagnostics, `application.shutdown_failed`, comprehensive
+- This did not verify production JSON output, all event families through the
+  production reverse proxy, `application.shutdown_failed`, comprehensive
   sensitive-data exclusion, or actual Loki retention deletion.
