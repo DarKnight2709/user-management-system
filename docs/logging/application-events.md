@@ -11,6 +11,15 @@ background-worker diagnostics, Auth operational events, and bootstrap/shutdown
 lifecycle events. It is not yet a replacement for every application log
 producer.
 
+Uncatalogued records that pass through Winston, including Nest framework
+startup and route-mapping logs, receive `category: application` and
+`event: framework.log` at the Winston formatting boundary. Records that already
+have classification fields retain them. These framework records do not pass
+through the Joi application-event catalog; the boundary only supplies missing
+classification fields. LoggerService fallback events written directly to
+stderr retain their separate `logging_internal` category to avoid recursive
+logging failures.
+
 ## Application lifecycle
 
 - `main.ts` emits `application.started` after the HTTP server starts listening;

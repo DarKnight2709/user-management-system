@@ -24,6 +24,7 @@ import { WinstonModule, utilities as nestWinstonUtilities } from 'nest-winston';
 import * as winston from 'winston';
 import { requestContext } from './core/logging/request-context.js';
 import { redactSensitiveData } from './core/logging/redact-log.format.js';
+import { classifyUncataloguedLogs } from './core/logging/classify-uncatalogued-log.format.js';
 @Module({
   imports: [
     BullModule.forRootAsync({
@@ -72,6 +73,7 @@ import { redactSensitiveData } from './core/logging/redact-log.format.js';
           format: winston.format.combine(
             addRequestId(),
             redactSensitiveData(),
+            classifyUncataloguedLogs(),
             winston.format.timestamp(),
             isDevelopment
               ? winston.format.combine(

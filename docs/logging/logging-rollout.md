@@ -23,12 +23,13 @@ Inventory date: 2026-10-29. This file tracks code inspection, not production ver
 | 4     | invitations/services/invitation-delivery.service.ts | Implemented: cataloged delivery and failure-recording diagnostics                                                | Verify stage and safe error-code grouping in Loki                                                                        |
 | 4     | invitations/workers/email-notification.worker.ts    | Implemented: cataloged worker error, job failure and completion events                                           | Verify attempt counts and interpret completion as job completion only                                                    |
 | 5     | main.ts and core/logging/graceful-shutdown.ts       | Implemented: bootstrap and shutdown events use LoggingService.application(); raw Winston remains for final flush | Verify lifecycle events and shutdown ordering in Loki; final flush failures are represented by unsuccessful process exit |
-| 5     | LoggingService fallback                             | Direct stderr, category logging_internal                                                                         | Retain independent fallback to avoid recursive logger failures; explicitly document this technical category              |
+| 6     | Winston boundary / Nest framework logs              | Implemented: uncatalogued Winston records receive application/framework.log labels                               | Verify JSON classification in Loki; records remain outside the Joi application-event schema                              |
+| 7     | LoggingService fallback                             | Implemented: direct stderr, category logging_internal                                                            | Retain independent fallback to avoid recursive logger failures                                                           |
 
 No direct logger calls were found in core/storage during this inventory. Check
 callers and exception filters before adding storage logs that could duplicate errors.
-Nest framework startup/router logs also need a deliberate default category at the
-Winston boundary; application event schemas alone do not classify them.
+Direct console writes outside the LoggingService fallback are not normalized by
+Winston; none are currently used as application producers in `src/`.
 
 ## HTTP ownership decisions
 
