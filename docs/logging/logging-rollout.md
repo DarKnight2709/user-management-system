@@ -8,9 +8,9 @@ Inventory date: 2026-10-29. This file tracks code inspection, not production ver
 - auth.refresh_failed and logout-all's auth.logout_failed use application().
 - Single-family logout infrastructure failures use
   auth.logout_session_failed; invalid token outcomes are excluded.
-- Both operational events are emitted outside transaction retries and rethrow
-  the original failure. Raw errors and tokens are excluded from their payloads.
-- Single-family logout has no dedicated operational failure event yet.
+- These operational events are emitted after transaction failures/retries and
+  rethrow the original failure. Raw errors and tokens are excluded from their
+  payloads.
 
 ## Producer inventory and next steps
 
@@ -31,7 +31,9 @@ Inventory date: 2026-10-29. This file tracks code inspection, not production ver
 No direct logger calls were found in core/storage during this inventory. Check
 callers and exception filters before adding storage logs that could duplicate errors.
 Direct console writes outside the LoggingService fallback are not normalized by
-Winston; none are currently used as application producers in `src/`.
+Winston; none are currently used as application producers in `src/`. `repl.ts`
+uses Nest's REPL-specific logger for developer tooling and is not the HTTP
+application runtime.
 
 ## HTTP ownership decisions
 
