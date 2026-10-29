@@ -5,6 +5,16 @@ const requestContextSchema = Joi.object({
   requestId: Joi.string().uuid().required(),
 }).required();
 
+const optionalRequestContextSchema = Joi.object({
+  requestId: Joi.string().uuid().required(),
+});
+
+const databaseQueryFields = {
+  queryFingerprint: Joi.string().hex().length(64).required(),
+  durationMs: Joi.number().min(0).max(Number.MAX_SAFE_INTEGER).required(),
+  requestContext: optionalRequestContextSchema,
+};
+
 const httpFields = {
   method: Joi.string()
     .custom((value: string) =>
@@ -95,6 +105,25 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
         .pattern(/^P\d{4}$/)
         .required(),
       requestContext: requestContextSchema,
+    }),
+    Joi.object({
+      event: Joi.string()
+        .valid('database.info', 'database.warning', 'database.error')
+        .required(),
+      requestContext: optionalRequestContextSchema,
+    }),
+    Joi.object({
+      ...databaseQueryFields,
+      event: Joi.string().valid('database.query_completed').required(),
+    }),
+    Joi.object({
+      ...databaseQueryFields,
+      event: Joi.string().valid('database.slow_query').required(),
+      thresholdMs: Joi.number()
+        .integer()
+        .min(1)
+        .max(Number.MAX_SAFE_INTEGER)
+        .required(),
     }),
     Joi.object({
       event: Joi.string().valid('auth.refresh_failed').required(),

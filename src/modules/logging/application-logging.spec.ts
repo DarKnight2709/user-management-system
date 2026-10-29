@@ -59,6 +59,21 @@ describe('Application logging boundaries', () => {
       code: 'P2021',
       requestContext: { requestId },
     },
+    { event: 'database.info' },
+    { event: 'database.warning', requestContext: { requestId } },
+    { event: 'database.error' },
+    {
+      event: 'database.query_completed',
+      queryFingerprint: 'a'.repeat(64),
+      durationMs: 12.5,
+    },
+    {
+      event: 'database.slow_query',
+      queryFingerprint: 'b'.repeat(64),
+      durationMs: 100,
+      thresholdMs: 100,
+      requestContext: { requestId },
+    },
   ])('accepts the safe diagnostic event $event', (input) => {
     expect(parseApplicationEvent(input)).toEqual(input);
   });
@@ -125,6 +140,26 @@ describe('Application logging boundaries', () => {
       level: 'error',
       message: 'HTTP request failed',
     });
+  });
+
+  it('writes opted-in query diagnostics at debug without inventing a request ID', () => {
+    const log = vi.fn();
+    const logger = { on: vi.fn(), off: vi.fn(), log } as unknown as Logger;
+    const service = new LoggingService(
+      logger,
+      new ConfigService({ NODE_ENV: 'development' }),
+    );
+    service.application({
+      event: 'database.query_completed',
+      queryFingerprint: 'a'.repeat(64),
+      durationMs: 12.5,
+    });
+    expect(log.mock.calls[0][0]).toMatchObject({
+      event: 'database.query_completed',
+      level: 'debug',
+      message: 'Database query completed',
+    });
+    expect(log.mock.calls[0][0]).not.toHaveProperty('requestId');
   });
 
   it('contains logger failures and emits only one safe fallback', () => {

@@ -35,6 +35,16 @@ export type ApplicationEventInput =
       code: string;
       requestContext: ApplicationRequestContext;
     }
+  | (DatabaseDriverEvent & {
+      event: 'database.info' | 'database.warning' | 'database.error';
+    })
+  | (DatabaseQueryEvent & {
+      event: 'database.query_completed';
+    })
+  | (DatabaseQueryEvent & {
+      event: 'database.slow_query';
+      thresholdMs: number;
+    })
   | {
       event: 'auth.refresh_failed';
       requestContext: ApplicationRequestContext;
@@ -62,3 +72,12 @@ type StandardErrorType =
   | 'URIError'
   | 'EvalError'
   | 'AggregateError';
+
+type DatabaseDriverEvent = {
+  requestContext?: ApplicationRequestContext;
+};
+
+type DatabaseQueryEvent = DatabaseDriverEvent & {
+  queryFingerprint: string;
+  durationMs: number;
+};

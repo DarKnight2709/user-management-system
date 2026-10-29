@@ -200,8 +200,9 @@ the corresponding objects are also moved.
 enables query DEBUG metadata only when `NODE_ENV=development` and the configured
 log level permits debug output. Records contain a SHA-256 query fingerprint and
 duration, never raw SQL or parameters. Slow-query warnings remain enabled in every
-environment. Prisma info/warn/error events go through Nest/Winston using fixed
-messages; raw driver messages and targets are omitted.
+environment. Prisma driver/query events go through the validated application
+event catalog and Winston using fixed messages; raw driver messages, targets,
+SQL and parameters are omitted.
 
 Fill the empty database and storage fields with your configured credentials.
 Generate each JWT secret separately using this command (run it twice):

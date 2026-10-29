@@ -35,6 +35,22 @@ producer.
   metadata. Unexpected errors may include at most 32 call-site-only stack frames.
 - Existing safe HTTP responses and known Prisma mappings are unchanged.
 
+## Database diagnostics
+
+- PrismaService emits `database.info`, `database.warning` and `database.error`
+  without forwarding the Prisma driver payload.
+- `database.query_completed` is produced only in development when
+  `LOG_DATABASE_QUERIES=true`. Set `LOG_LEVEL=debug` when it must be emitted by
+  Winston; the normal `info` level filters it out.
+- `database.slow_query` remains a warning in every environment for queries taking
+  at least 100 ms.
+- Query events contain only a SHA-256 query fingerprint and duration. SQL text,
+  parameters, driver messages, targets and metadata are excluded.
+- A database event carries `requestContext.requestId` only when it executes in an
+  active HTTP context. Background work does not receive an invented request ID.
+- The fingerprint groups identical SQL text for investigation; it cannot recover
+  the SQL or identify the slow statement by itself.
+
 ## Input and failure handling
 
 - `event` must be a supported catalog entry. Each event has its own field allowlist.

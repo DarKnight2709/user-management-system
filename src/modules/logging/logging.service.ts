@@ -71,6 +71,7 @@ export class LoggingService implements OnModuleDestroy {
     try {
       const event = parseApplicationEvent(input);
       const policy = APPLICATION_EVENT_POLICIES[event.event];
+      const requestId = event.requestContext?.requestId;
 
       this.writeConsole(applicationEventLevel(event), {
         ...event,
@@ -79,7 +80,7 @@ export class LoggingService implements OnModuleDestroy {
         schemaVersion: policy.schemaVersion,
         category: policy.category,
         message: policy.message,
-        requestId: event.requestContext.requestId,
+        ...(requestId ? { requestId } : {}),
       });
     } catch {
       this.reportFailure('APPLICATION_LOG_FAILED');

@@ -1,20 +1,20 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { PrismaClient, Prisma } from '@/generated/prisma/client.js';
 import { ConfigService } from '@nestjs/config';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
 @Injectable()
 export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    private readonly logging: LoggingService,
+  ) {
     const isDevelopment =
       configService.get<string>('NODE_ENV') === 'development';
     const databaseUrl = configService.get<string>('DATABASE_URL');
@@ -44,23 +44,22 @@ export class PrismaService
 
     // Never forward raw driver messages or metadata; they may contain sensitive data.
     (this as any).$on('info', () => {
-      Logger.log(
-        { message: 'Database information event', event: 'database.info' },
-        'PrismaService',
-      );
+      this.logging.application({
+        event: 'database.info',
+        ...this.loggingContext(),
+      });
     });
     (this as any).$on('warn', () => {
-      Logger.warn(
-        { message: 'Database warning', event: 'database.warning' },
-        'PrismaService',
-      );
+      this.logging.application({
+        event: 'database.warning',
+        ...this.loggingContext(),
+      });
     });
     (this as any).$on('error', () => {
-      Logger.error(
-        { message: 'Database error event', event: 'database.error' },
-        undefined,
-        'PrismaService',
-      );
+      this.logging.application({
+        event: 'database.error',
+        ...this.loggingContext(),
+      });
     });
 
     // Log query metadata only; slow queries (>=100ms) warn in every environment.
@@ -80,28 +79,22 @@ export class PrismaService
         .digest('hex');
 
       if (logDatabaseQueries) {
-        Logger.debug(
-          {
-            message: 'Database query completed',
-            event: 'database_query',
-            queryFingerprint,
-            durationMs: e.duration,
-          },
-          'PrismaService',
-        );
+        this.logging.application({
+          event: 'database.query_completed',
+          queryFingerprint,
+          durationMs: e.duration,
+          ...this.loggingContext(),
+        });
       }
 
       if (isSlowQuery) {
-        Logger.warn(
-          {
-            message: 'Slow database query',
-            event: 'slow_database_query',
-            queryFingerprint,
-            durationMs: e.duration,
-            thresholdMs: 100,
-          },
-          'PrismaService',
-        );
+        this.logging.application({
+          event: 'database.slow_query',
+          queryFingerprint,
+          durationMs: e.duration,
+          thresholdMs: 100,
+          ...this.loggingContext(),
+        });
       }
     });
   }
@@ -145,5 +138,11 @@ export class PrismaService
   }
   async onModuleDestroy() {
     await this.$disconnect();
+  }
+
+  private loggingContext():
+    { requestContext: { requestId: string } } | Record<string, never> {
+    const context = requestContext.getStore();
+    return context ? { requestContext: { requestId: context.requestId } } : {};
   }
 }
