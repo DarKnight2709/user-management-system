@@ -1,0 +1,53 @@
+# Logging rollout inventory
+
+Inventory date: 2026-10-29. This file tracks code inspection, not production verification.
+
+## Completed Auth scope
+
+- Selected Auth security events use LoggingService.security().
+- auth.refresh_failed and logout-all's auth.logout_failed use application().
+- Both operational events are emitted outside transaction retries and rethrow
+  the original failure. Raw errors and tokens are excluded from their payloads.
+- Single-family logout has no dedicated operational failure event yet.
+
+## Producer inventory and next steps
+
+| Order | Producer | Current state | Next work |
+| --- | --- | --- | --- |
+| 1 | common/middlewares/logger.middleware.ts | Completed/aborted HTTP records, request ID, duration, safe route fallback; no category/event | Add application category and stable completion/abort events; preserve once-only finish/close handling and null status on abort |
+| 2 | common/filters/all-exceptions.filter.ts | http.operational_error, http.payload_too_large, http.unhandled_error | Define allowed diagnostic fields and responsibility for propagated errors; keep 413 and safe HTTP responses |
+| 2 | common/filters/prisma-exception.filter.ts | database.unhandled_error for unhandled Prisma codes | Coordinate with Auth/Prisma logs and request ID; preserve known-error HTTP mappings |
+| 3 | core/database/prisma.service.ts | database.info/warning/error, database_query, slow_database_query via static Nest Logger | Add application classification; preserve development-only SQL opt-in and value-free fingerprints; inspect driver-event duplication |
+| 4 | modules/users/avatar-cleanup.service.ts | Worker failure and retry scheduling events | Allowlist task/object references and safe failure categories; distinguish attempts from terminal failure |
+| 4 | invitations/services/invitation-email.service.ts | Queue/enqueue unavailable events | Record safe invitation/version/queue identifiers; preserve acknowledgement uncertainty |
+| 4 | invitations/services/invitation-delivery.service.ts | Delivery and failure-recording events | Preserve stage and safe code; avoid SMTP messages, recipients and capability links |
+| 4 | invitations/workers/email-notification.worker.ts | Worker error, job failed/completed | Correlate by job ID/attempt; completion does not prove email receipt; distinguish job summaries from delivery diagnostics |
+| 5 | main.ts and core/logging/graceful-shutdown.ts | Bootstrap and shutdown logs via Nest Logger | Classify lifecycle logs without introducing a dependency on application providers after shutdown |
+| 5 | LoggingService fallback | Direct stderr, category logging_internal | Retain independent fallback to avoid recursive logger failures; explicitly document this technical category |
+
+No direct logger calls were found in core/storage during this inventory. Check
+callers and exception filters before adding storage logs that could duplicate errors.
+Nest framework startup/router logs also need a deliberate default category at the
+Winston boundary; application event schemas alone do not classify them.
+
+## HTTP ownership decisions to implement next
+
+- Middleware owns one request summary, including expected 4xx responses.
+- Security events describe selected security actions separately.
+- Determine the owner of operational diagnostics before changing filters:
+  Auth currently emits a domain failure event and then propagates the same error.
+  Filters may emit another diagnostic record. These are not yet deduplicated.
+- Do not suppress unrelated exceptions or use a process-wide flag. Any eventual
+  deduplication must be scoped to the exact error/request and preserve diagnostics.
+- Maintain server-generated request IDs; do not copy raw URLs, query strings,
+  headers, request/response bodies or exception messages into generic metadata.
+- Background tasks should use actual job/task identifiers, not invented HTTP IDs.
+  Their schemas will need context appropriate to background work.
+
+## Verification and deployment still pending
+
+- Exercise HTTP completion/abort, expected 4xx and unexpected 5xx after migration.
+- Query Loki by category/event/request ID and check sensitive-data exclusions.
+- Verify Loki retention actually deletes old data; seven days remains a target.
+- Verify restart persistence and collector recovery with existing volumes.
+- Audit persistence and business-transaction integration remain a separate phase.

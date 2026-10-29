@@ -6,8 +6,9 @@
 them through Winston Console -> Docker -> Alloy -> Loki. It does not persist
 events to PostgreSQL or wait for Loki acknowledgement.
 
-This first step defines the two existing Auth operational events below.
-Their AuthService call sites still use Nest Logger; migration is the next step.
+The catalog defines the two existing Auth operational events below.
+AuthService sends both auth.refresh_failed and auth.logout_failed through
+LoggingService.application(). Both retain the original thrown operation error.
 This is not yet a replacement for all application log producers.
 
 ## Input and failure handling
@@ -31,20 +32,22 @@ This is not yet a replacement for all application log producers.
 - Category: application; level: error; schemaVersion: 1.
 - Message: `Refresh token processing failed`.
 - Input: event and requestContext.requestId.
-- Intended trigger: unexpected refresh-processing failure, after transaction
+- Trigger: unexpected refresh-processing failure, after transaction
   retries are exhausted where applicable. Rejected or expired tokens and token
   reuse are excluded.
+- Producer: AuthService.refreshToken catch block, outside transaction retries.
+  The original error is rethrown after the best-effort log call.
 
 ## auth.logout_failed
 
 - Category: application; level: error; schemaVersion: 1.
 - Message: `Logout failed`.
 - Input: event, authenticated userId (UUID), scope `all_sessions`, requestContext.requestId.
-- Intended trigger: the existing logout-all revocation operation fails after
+- Trigger: the existing logout-all revocation operation fails after
   transaction retries. The original error must still propagate.
 - Single-family logout failure is not covered by this initial catalog entry.
 
-## Example for the upcoming call-site migration
+## Refresh failure example
 
 ```ts
 this.loggingService.application({

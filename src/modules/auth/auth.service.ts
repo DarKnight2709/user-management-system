@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service.js';
@@ -26,7 +25,6 @@ export interface JwtRefreshTokenPayload {
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
   constructor(
     private readonly userService: UsersService,
     private readonly prisma: PrismaService,
@@ -307,13 +305,12 @@ export class AuthService {
         throw error;
       }
 
-      this.logger.error(
-        {
-          message: 'Refresh token processing failed',
-          event: 'auth.refresh_failed',
+      this.loggingService.application({
+        event: 'auth.refresh_failed',
+        requestContext: {
+          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
         },
-        undefined,
-      );
+      });
       throw error;
     }
   }
@@ -388,15 +385,14 @@ export class AuthService {
         }),
       );
     } catch (error) {
-      this.logger.error(
-        {
-          message: 'Logout failed',
-          event: 'auth.logout_failed',
-          userId,
-          scope: 'all_sessions',
+      this.loggingService.application({
+        event: 'auth.logout_failed',
+        userId,
+        scope: 'all_sessions',
+        requestContext: {
+          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
         },
-        undefined,
-      );
+      });
       throw error;
     }
 
