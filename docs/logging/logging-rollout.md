@@ -51,8 +51,27 @@ application runtime.
 
 ## Verification and deployment still pending
 
-- Exercise HTTP completion/abort, expected 4xx and unexpected 5xx after migration.
-- Query Loki by category/event/request ID and check sensitive-data exclusions.
+- Exercise HTTP abort, expected 4xx and unexpected 5xx after migration.
+- Verify the remaining diagnostic families and sensitive-data exclusions in Loki.
 - Verify Loki retention actually deletes old data; seven days remains a target.
 - Verify restart persistence and collector recovery with existing volumes.
 - Audit persistence and business-transaction integration remain a separate phase.
+
+## Local runtime verification (2026-10-29)
+
+- Rebuilt and recreated only the backend with the current committed code. The
+  `/health/live` endpoint returned 200 before and after the restart.
+- Loki's HTTP API returned `application.started`, `framework.log`, and
+  `http.request.completed` for the liveness request. The development
+  `nestLike` output remains multiline, but its event/category fields are
+  searchable as log lines.
+- Sent SIGTERM with a 40-second Docker grace period. The backend emitted
+  `application.shutdown_started`, Loki received it, and the backend was started
+  again successfully.
+- After backend replacement, Alloy continued querying the old Docker container
+  ID during this check. Restarting Alloy refreshed discovery and the new
+  backend's events then appeared in Loki. This observation is local only and
+  should be rechecked during normal deployment/restart behavior.
+- This did not verify production JSON output, all event families, sensitive
+  data exclusion under real failures, `application.shutdown_failed`, or actual
+  Loki retention deletion.
