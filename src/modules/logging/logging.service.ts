@@ -71,7 +71,8 @@ export class LoggingService implements OnModuleDestroy {
     try {
       const event = parseApplicationEvent(input);
       const policy = APPLICATION_EVENT_POLICIES[event.event];
-      const requestId = event.requestContext?.requestId;
+      const requestId =
+        'requestContext' in event ? event.requestContext?.requestId : undefined;
 
       this.writeConsole(applicationEventLevel(event), {
         ...event,

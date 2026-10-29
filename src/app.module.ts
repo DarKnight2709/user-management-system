@@ -16,7 +16,6 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard.js';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
-import { LoggingModule } from './modules/logging/logging.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 import { BullModule } from '@nestjs/bullmq';
@@ -92,7 +91,6 @@ import { redactSensitiveData } from './core/logging/redact-log.format.js';
     }),
     UsersModule,
     GlobalModule,
-    LoggingModule,
     AuthModule,
     HealthModule,
     OrganizationsModule,

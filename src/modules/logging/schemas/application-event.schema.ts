@@ -15,6 +15,15 @@ const databaseQueryFields = {
   requestContext: optionalRequestContextSchema,
 };
 
+const backgroundErrorCategorySchema = Joi.string().valid(
+  'database',
+  'timeout',
+  'storage_authorization',
+  'storage_bucket_missing',
+  'storage_unavailable',
+  'unknown',
+);
+
 const httpFields = {
   method: Joi.string()
     .custom((value: string) =>
@@ -124,6 +133,26 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
         .min(1)
         .max(Number.MAX_SAFE_INTEGER)
         .required(),
+    }),
+    Joi.object({
+      event: Joi.string().valid('avatar.cleanup_worker_failed').required(),
+      errorCategory: backgroundErrorCategorySchema.required(),
+    }),
+    Joi.object({
+      event: Joi.string()
+        .valid('avatar.cleanup_retry_scheduling_failed')
+        .required(),
+      taskId: Joi.string().uuid().required(),
+      attempt: Joi.number().integer().min(1).required(),
+      errorCategory: backgroundErrorCategorySchema.required(),
+      schedulingErrorCategory: backgroundErrorCategorySchema.required(),
+    }),
+    Joi.object({
+      event: Joi.string().valid('avatar.cleanup_retry_scheduled').required(),
+      taskId: Joi.string().uuid().required(),
+      attempt: Joi.number().integer().min(1).required(),
+      errorCategory: backgroundErrorCategorySchema.required(),
+      retryDelayMs: Joi.number().integer().min(1).max(3_600_000).required(),
     }),
     Joi.object({
       event: Joi.string().valid('auth.refresh_failed').required(),

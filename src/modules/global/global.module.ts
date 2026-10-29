@@ -16,6 +16,6 @@ import { LoggingModule } from '@/modules/logging/logging.module.js';
     LoggingModule,
   ],
   providers: [PrismaService, S3Service, PermissionsService],
-  exports: [PrismaService, S3Service, PermissionsService],
+  exports: [PrismaService, S3Service, PermissionsService, LoggingModule],
 })
 export class GlobalModule {}

@@ -74,6 +74,24 @@ describe('Application logging boundaries', () => {
       thresholdMs: 100,
       requestContext: { requestId },
     },
+    {
+      event: 'avatar.cleanup_worker_failed',
+      errorCategory: 'database',
+    },
+    {
+      event: 'avatar.cleanup_retry_scheduling_failed',
+      taskId: userId,
+      attempt: 2,
+      errorCategory: 'storage_unavailable',
+      schedulingErrorCategory: 'database',
+    },
+    {
+      event: 'avatar.cleanup_retry_scheduled',
+      taskId: userId,
+      attempt: 2,
+      errorCategory: 'timeout',
+      retryDelayMs: 60_000,
+    },
   ])('accepts the safe diagnostic event $event', (input) => {
     expect(parseApplicationEvent(input)).toEqual(input);
   });

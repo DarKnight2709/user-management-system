@@ -51,6 +51,18 @@ producer.
 - The fingerprint groups identical SQL text for investigation; it cannot recover
   the SQL or identify the slow statement by itself.
 
+## Avatar cleanup diagnostics
+
+- `avatar.cleanup_retry_scheduled` records a claimed task ID, attempt number,
+  bounded retry delay and allowlisted failure category.
+- `avatar.cleanup_retry_scheduling_failed` records both the original operation
+  category and the database scheduling category before the batch fails.
+- `avatar.cleanup_worker_failed` is the terminal batch-level diagnostic. A retry
+  scheduling failure therefore produces both the task-level cause and batch-level
+  outcome, linked operationally by time rather than a fabricated request ID.
+- Object keys, raw storage responses, database messages and stack traces are not
+  included. Existing retry, lease and object-deletion behavior is unchanged.
+
 ## Input and failure handling
 
 - `event` must be a supported catalog entry. Each event has its own field allowlist.

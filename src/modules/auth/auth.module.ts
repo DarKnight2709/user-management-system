@@ -6,10 +6,9 @@ import { LocalStrategy } from './strategies/local.strategy.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { LoggingModule } from '../logging/logging.module.js';
 
 @Module({
-  imports: [UsersModule, PassportModule, ThrottlerModule, LoggingModule],
+  imports: [UsersModule, PassportModule, ThrottlerModule],
   controllers: [AuthController],
   providers: [AuthService, LocalStrategy, JwtStrategy],
 })

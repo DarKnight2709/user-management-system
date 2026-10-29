@@ -46,6 +46,24 @@ export type ApplicationEventInput =
       thresholdMs: number;
     })
   | {
+      event: 'avatar.cleanup_worker_failed';
+      errorCategory: BackgroundErrorCategory;
+    }
+  | {
+      event: 'avatar.cleanup_retry_scheduling_failed';
+      taskId: string;
+      attempt: number;
+      errorCategory: BackgroundErrorCategory;
+      schedulingErrorCategory: BackgroundErrorCategory;
+    }
+  | {
+      event: 'avatar.cleanup_retry_scheduled';
+      taskId: string;
+      attempt: number;
+      errorCategory: BackgroundErrorCategory;
+      retryDelayMs: number;
+    }
+  | {
       event: 'auth.refresh_failed';
       requestContext: ApplicationRequestContext;
     }
@@ -81,3 +99,11 @@ type DatabaseQueryEvent = DatabaseDriverEvent & {
   queryFingerprint: string;
   durationMs: number;
 };
+
+export type BackgroundErrorCategory =
+  | 'database'
+  | 'timeout'
+  | 'storage_authorization'
+  | 'storage_bucket_missing'
+  | 'storage_unavailable'
+  | 'unknown';
