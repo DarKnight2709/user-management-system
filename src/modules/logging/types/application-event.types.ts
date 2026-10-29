@@ -64,6 +64,41 @@ export type ApplicationEventInput =
       retryDelayMs: number;
     }
   | {
+      event: 'invitation.queue_unavailable';
+      queue: 'invitation-email';
+    }
+  | {
+      event: 'invitation.enqueue_unavailable';
+      invitationId: string;
+      version: number;
+      stage: 'queue-acknowledgement' | 'database-mark-queued';
+      queue: 'invitation-email';
+    }
+  | ({
+      event: 'invitation.delivery_failed' | 'invitation.failure_record_failed';
+      invitationId: string;
+      version: number;
+      stage: InvitationDeliveryStage;
+    } & SafeEmailErrorFields)
+  | ({
+      event: 'email.worker_error';
+      queue: 'invitation-email';
+    } & SafeEmailErrorFields)
+  | {
+      event: 'email.job_failed';
+      queue: 'invitation-email';
+      invitationId?: string;
+      version?: number;
+      attempt?: number;
+      maxAttempts?: number;
+    }
+  | {
+      event: 'email.job_completed';
+      queue: 'invitation-email';
+      invitationId: string;
+      version: number;
+    }
+  | {
       event: 'auth.refresh_failed';
       requestContext: ApplicationRequestContext;
     }
@@ -107,3 +142,39 @@ export type BackgroundErrorCategory =
   | 'storage_bucket_missing'
   | 'storage_unavailable'
   | 'unknown';
+
+export type SafeEmailErrorCode =
+  | 'EDNS'
+  | 'EAUTH'
+  | 'ETIMEDOUT'
+  | 'ESOCKET'
+  | 'ECONNECTION'
+  | 'ETLS'
+  | 'ENOTFOUND'
+  | 'EAI_AGAIN'
+  | 'ENODATA'
+  | 'ETIMEOUT'
+  | 'ECONNREFUSED'
+  | 'ECONNRESET'
+  | 'EPIPE'
+  | 'EENVELOPE'
+  | 'EMESSAGE'
+  | 'P1001'
+  | 'P1002'
+  | 'P1008'
+  | 'P2024'
+  | 'P2025'
+  | 'P2034'
+  | 'UNKNOWN';
+
+type SafeEmailErrorFields = {
+  code: SafeEmailErrorCode;
+  responseCode?: number;
+};
+
+export type InvitationDeliveryStage =
+  | 'database-read'
+  | 'link-configuration'
+  | 'smtp-send'
+  | 'database-record-sent'
+  | 'database-record-failed';

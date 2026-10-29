@@ -24,6 +24,44 @@ const backgroundErrorCategorySchema = Joi.string().valid(
   'unknown',
 );
 
+const safeEmailErrorCodeSchema = Joi.string().valid(
+  'EDNS',
+  'EAUTH',
+  'ETIMEDOUT',
+  'ESOCKET',
+  'ECONNECTION',
+  'ETLS',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ENODATA',
+  'ETIMEOUT',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EPIPE',
+  'EENVELOPE',
+  'EMESSAGE',
+  'P1001',
+  'P1002',
+  'P1008',
+  'P2024',
+  'P2025',
+  'P2034',
+  'UNKNOWN',
+);
+
+const safeEmailErrorFields = {
+  code: safeEmailErrorCodeSchema.required(),
+  responseCode: Joi.number().integer().min(400).max(599),
+};
+
+const invitationStageSchema = Joi.string().valid(
+  'database-read',
+  'link-configuration',
+  'smtp-send',
+  'database-record-sent',
+  'database-record-failed',
+);
+
 const httpFields = {
   method: Joi.string()
     .custom((value: string) =>
@@ -153,6 +191,54 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
       attempt: Joi.number().integer().min(1).required(),
       errorCategory: backgroundErrorCategorySchema.required(),
       retryDelayMs: Joi.number().integer().min(1).max(3_600_000).required(),
+    }),
+    Joi.object({
+      event: Joi.string().valid('invitation.queue_unavailable').required(),
+      queue: Joi.string().valid('invitation-email').required(),
+    }),
+    Joi.object({
+      event: Joi.string().valid('invitation.enqueue_unavailable').required(),
+      invitationId: Joi.string().uuid().required(),
+      version: Joi.number().integer().min(1).required(),
+      stage: Joi.string()
+        .valid('queue-acknowledgement', 'database-mark-queued')
+        .required(),
+      queue: Joi.string().valid('invitation-email').required(),
+    }),
+    Joi.object({
+      ...safeEmailErrorFields,
+      event: Joi.string().valid('invitation.delivery_failed').required(),
+      invitationId: Joi.string().uuid().required(),
+      version: Joi.number().integer().min(1).required(),
+      stage: invitationStageSchema.required(),
+    }),
+    Joi.object({
+      ...safeEmailErrorFields,
+      event: Joi.string().valid('invitation.failure_record_failed').required(),
+      invitationId: Joi.string().uuid().required(),
+      version: Joi.number().integer().min(1).required(),
+      stage: Joi.string().valid('database-record-failed').required(),
+    }),
+    Joi.object({
+      ...safeEmailErrorFields,
+      event: Joi.string().valid('email.worker_error').required(),
+      queue: Joi.string().valid('invitation-email').required(),
+    }),
+    Joi.object({
+      event: Joi.string().valid('email.job_failed').required(),
+      queue: Joi.string().valid('invitation-email').required(),
+      invitationId: Joi.string().uuid(),
+      version: Joi.number().integer().min(1),
+      attempt: Joi.number().integer().min(1),
+      maxAttempts: Joi.number().integer().min(1),
+    })
+      .and('invitationId', 'version')
+      .and('attempt', 'maxAttempts'),
+    Joi.object({
+      event: Joi.string().valid('email.job_completed').required(),
+      queue: Joi.string().valid('invitation-email').required(),
+      invitationId: Joi.string().uuid().required(),
+      version: Joi.number().integer().min(1).required(),
     }),
     Joi.object({
       event: Joi.string().valid('auth.refresh_failed').required(),

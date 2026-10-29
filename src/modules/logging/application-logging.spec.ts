@@ -92,8 +92,83 @@ describe('Application logging boundaries', () => {
       errorCategory: 'timeout',
       retryDelayMs: 60_000,
     },
+    { event: 'invitation.queue_unavailable', queue: 'invitation-email' },
+    {
+      event: 'invitation.enqueue_unavailable',
+      invitationId: userId,
+      version: 1,
+      stage: 'queue-acknowledgement',
+      queue: 'invitation-email',
+    },
+    {
+      event: 'invitation.delivery_failed',
+      invitationId: userId,
+      version: 2,
+      stage: 'smtp-send',
+      code: 'EAUTH',
+      responseCode: 535,
+    },
+    {
+      event: 'invitation.failure_record_failed',
+      invitationId: userId,
+      version: 2,
+      stage: 'database-record-failed',
+      code: 'P2024',
+    },
+    {
+      event: 'email.worker_error',
+      queue: 'invitation-email',
+      code: 'ECONNRESET',
+    },
+    { event: 'email.job_failed', queue: 'invitation-email' },
+    {
+      event: 'email.job_failed',
+      queue: 'invitation-email',
+      invitationId: userId,
+      version: 3,
+      attempt: 2,
+      maxAttempts: 3,
+    },
+    {
+      event: 'email.job_completed',
+      queue: 'invitation-email',
+      invitationId: userId,
+      version: 3,
+    },
   ])('accepts the safe diagnostic event $event', (input) => {
     expect(parseApplicationEvent(input)).toEqual(input);
+  });
+
+  it('strips recipient and capability data from invitation diagnostics', () => {
+    const input = {
+      event: 'invitation.delivery_failed',
+      invitationId: userId,
+      version: 2,
+      stage: 'smtp-send',
+      code: 'EAUTH',
+      email: 'private-recipient@example.com',
+      inviteLink: 'private-capability-link',
+      tokenHash: 'private-token-hash',
+    };
+    expect(parseApplicationEvent(input)).toEqual({
+      event: 'invitation.delivery_failed',
+      invitationId: userId,
+      version: 2,
+      stage: 'smtp-send',
+      code: 'EAUTH',
+    });
+  });
+
+  it('rejects unknown invitation error codes', () => {
+    expect(() =>
+      parseApplicationEvent({
+        event: 'invitation.delivery_failed',
+        invitationId: userId,
+        version: 2,
+        stage: 'smtp-send',
+        code: 'private-smtp-message',
+      }),
+    ).toThrow('Invalid application event');
   });
 
   it.each([

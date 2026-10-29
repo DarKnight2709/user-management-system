@@ -1,5 +1,7 @@
 // Never include error.message, stack, response text, or arbitrary properties.
-const safeCodes = new Set([
+import type { SafeEmailErrorCode } from '@/modules/logging/types/application-event.types.js';
+
+const safeCodes = new Set<Exclude<SafeEmailErrorCode, 'UNKNOWN'>>([
   'EDNS',
   'EAUTH',
   'ETIMEDOUT',
@@ -24,15 +26,15 @@ const safeCodes = new Set([
 ]);
 
 export function safeEmailErrorDetails(error: unknown): {
-  code: string;
+  code: SafeEmailErrorCode;
   responseCode?: number;
 } {
   if (typeof error !== 'object' || error === null) return { code: 'UNKNOWN' };
   const code =
     'code' in error &&
     typeof error.code === 'string' &&
-    safeCodes.has(error.code)
-      ? error.code
+    safeCodes.has(error.code as Exclude<SafeEmailErrorCode, 'UNKNOWN'>)
+      ? (error.code as Exclude<SafeEmailErrorCode, 'UNKNOWN'>)
       : 'UNKNOWN';
   const responseCode =
     'responseCode' in error &&

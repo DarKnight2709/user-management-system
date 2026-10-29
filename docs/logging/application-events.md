@@ -63,6 +63,20 @@ producer.
 - Object keys, raw storage responses, database messages and stack traces are not
   included. Existing retry, lease and object-deletion behavior is unchanged.
 
+## Invitation and email worker diagnostics
+
+- Queue events use the fixed queue name and invitation UUID/version where
+  relevant. Enqueue failures identify whether queue acknowledgement or recording
+  the queued state failed; a timeout still means acknowledgement was not
+  confirmed, not that the Redis operation was cancelled.
+- Delivery events allowlist the processing stage, known error code and optional
+  SMTP response code. Failure-state recording has its own event.
+- Worker events use queue name, attempt counts and invitation UUID/version.
+  A completed BullMQ job can also represent a deliberately skipped stale job, so
+  it does not claim that an email reached an inbox.
+- Recipient addresses, invitation links/tokens, hashes, raw SMTP/Redis/database
+  messages and arbitrary job properties are excluded.
+
 ## Input and failure handling
 
 - `event` must be a supported catalog entry. Each event has its own field allowlist.

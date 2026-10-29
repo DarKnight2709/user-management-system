@@ -21,8 +21,8 @@ import { envValidationSchema } from '@/core/config/env.validation.js';
 import { InvitationsService } from '../services/invitations.service.js';
 import type { PermissionsService } from '@/common/services/permissions.service.js';
 import type { Prisma } from '@/generated/prisma/client.js';
-import { Logger } from '@nestjs/common';
 import { safeEmailErrorDetails } from '../utils/email-error.util.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
 
 const config = new ConfigService({
   INVITATION_TOKEN_SECRET: 'test-invitation-secret-'.repeat(4),
@@ -30,6 +30,8 @@ const config = new ConfigService({
   SMTP_FROM: 'sender@example.com',
 });
 const links = new InvitationLinksService(config);
+const application = vi.fn();
+const logging = { application } as unknown as LoggingService;
 
 describe('Safe email error diagnostics', () => {
   it('keeps allowlisted codes without raw SMTP responses or credentials', () => {
@@ -197,19 +199,21 @@ describe('Invitation input and links', () => {
 });
 
 describe('Invitation email delivery', () => {
+  const invitationId = '123e4567-e89b-42d3-a456-426614174000';
   const findUnique = vi.fn();
   const updateMany = vi.fn(async () => ({ count: 1 }));
   const sendMail = vi.fn();
   const add = vi.fn();
+  const queueOn = vi.fn();
   let service: InvitationDeliveryService;
   let producer: InvitationEmailService;
   const row = () => ({
-    id: 'invitation',
+    id: invitationId,
     email: 'recipient@example.com',
     deliveryVersion: 1,
     deliveryStatus: 'QUEUED',
     status: 'PENDING',
-    tokenHash: links.hash(links.token('invitation')),
+    tokenHash: links.hash(links.token(invitationId)),
     expiresAt: new Date(Date.now() + 60_000),
     organization: { name: 'Fixture', isActive: true, deletedAt: null },
   });
@@ -228,20 +232,24 @@ describe('Invitation email delivery', () => {
       }),
     );
     Reflect.set(smtp, 'transport', { sendMail });
-    service = new InvitationDeliveryService(prisma, links, smtp);
-    producer = new InvitationEmailService(prisma, {
-      add,
-      on: vi.fn(),
-    } as unknown as Queue<SendInvitationJobData>);
+    service = new InvitationDeliveryService(prisma, links, smtp, logging);
+    producer = new InvitationEmailService(
+      prisma,
+      {
+        add,
+        on: queueOn,
+      } as unknown as Queue<SendInvitationJobData>,
+      logging,
+    );
     findUnique.mockResolvedValue(row());
     sendMail.mockResolvedValue({ accepted: ['recipient@example.com'] });
   });
   it('records SENT only after SMTP accepts and uses text rather than unescaped HTML', async () => {
-    await service.deliver({ invitationId: 'invitation', version: 1 });
+    await service.deliver({ invitationId, version: 1 });
     expect(sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'recipient@example.com',
-        text: expect.stringContaining(links.link('invitation')),
+        text: expect.stringContaining(links.link(invitationId)),
       }),
     );
     expect(sendMail.mock.calls[0][0]).not.toHaveProperty('html');
@@ -255,38 +263,33 @@ describe('Invitation email delivery', () => {
     sendMail
       .mockRejectedValueOnce(new Error('sensitive SMTP failure'))
       .mockResolvedValueOnce({ accepted: ['recipient@example.com'] });
-    await expect(
-      service.deliver({ invitationId: 'invitation', version: 1 }),
-    ).rejects.toThrow('Invitation email delivery failed');
-    await service.deliver({ invitationId: 'invitation', version: 1 });
+    await expect(service.deliver({ invitationId, version: 1 })).rejects.toThrow(
+      'Invitation email delivery failed',
+    );
+    await service.deliver({ invitationId, version: 1 });
     expect(sendMail).toHaveBeenCalledTimes(2);
   });
   it('identifies SMTP failures without logging sensitive error details', async () => {
-    const warn = vi
-      .spyOn(Logger.prototype, 'warn')
-      .mockImplementation(() => {});
     sendMail.mockRejectedValueOnce(
       Object.assign(new Error('private credentials'), {
         code: 'EDNS',
         response: 'private SMTP response',
       }),
     );
-    try {
-      await expect(
-        service.deliver({ invitationId: 'invitation', version: 1 }),
-      ).rejects.toThrow('Invitation email delivery failed');
-      expect(warn).toHaveBeenCalledWith({
-        message: 'Invitation email delivery failed',
-        event: 'invitation.delivery_failed',
-        invitationId: 'invitation',
+    await expect(
+      service.deliver({
+        invitationId,
         version: 1,
-        stage: 'smtp-send',
-        code: 'EDNS',
-      });
-      expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
-    } finally {
-      warn.mockRestore();
-    }
+      }),
+    ).rejects.toThrow('Invitation email delivery failed');
+    expect(application).toHaveBeenCalledWith({
+      event: 'invitation.delivery_failed',
+      invitationId,
+      version: 1,
+      stage: 'smtp-send',
+      code: 'EDNS',
+    });
+    expect(JSON.stringify(application.mock.calls)).not.toContain('private');
   });
   it('does not expose raw database errors when lookup and failure recording both fail', async () => {
     findUnique.mockRejectedValueOnce(
@@ -295,9 +298,9 @@ describe('Invitation email delivery', () => {
     updateMany.mockRejectedValueOnce(
       new Error('sensitive database update failure'),
     );
-    await expect(
-      service.deliver({ invitationId: 'invitation', version: 1 }),
-    ).rejects.toThrow('Invitation email delivery failed');
+    await expect(service.deliver({ invitationId, version: 1 })).rejects.toThrow(
+      'Invitation email delivery failed',
+    );
     expect(sendMail).not.toHaveBeenCalled();
   });
   it.each([
@@ -330,18 +333,18 @@ describe('Invitation email delivery', () => {
       Reflect.set(invitation.organization, 'deletedAt', new Date());
     if (state === 'inactive org') invitation.organization.isActive = false;
     findUnique.mockResolvedValue(invitation);
-    await service.deliver({ invitationId: 'invitation', version: 1 });
+    await service.deliver({ invitationId, version: 1 });
     expect(sendMail).not.toHaveBeenCalled();
   });
   it('uses versioned job IDs without token payload and avoids overwriting SENT', async () => {
     Reflect.set(producer, 'queue', { add });
     add.mockResolvedValue({});
-    expect(await producer.enqueue('invitation', 2)).toBe(true);
+    expect(await producer.enqueue(invitationId, 2)).toBe(true);
     expect(add).toHaveBeenCalledWith(
       'send-invitation',
-      { invitationId: 'invitation', version: 2 },
+      { invitationId, version: 2 },
       expect.objectContaining({
-        jobId: 'invitation-2',
+        jobId: `${invitationId}-2`,
         attempts: 3,
         removeOnFail: { age: 604_800, count: 1_000 },
       }),
@@ -349,7 +352,7 @@ describe('Invitation email delivery', () => {
     expect(updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          id: 'invitation',
+          id: invitationId,
           deliveryVersion: 2,
           deliveryStatus: 'NOT_QUEUED',
         },
@@ -359,8 +362,25 @@ describe('Invitation email delivery', () => {
   it('preserves invitation when queue add fails', async () => {
     Reflect.set(producer, 'queue', { add });
     add.mockRejectedValueOnce(new Error('Redis unavailable'));
-    expect(await producer.enqueue('invitation', 1)).toBe(false);
+    expect(await producer.enqueue(invitationId, 1)).toBe(false);
     expect(updateMany).not.toHaveBeenCalled();
+    expect(application).toHaveBeenCalledWith({
+      event: 'invitation.enqueue_unavailable',
+      invitationId,
+      version: 1,
+      stage: 'queue-acknowledgement',
+      queue: INVITATION_EMAIL_QUEUE,
+    });
+  });
+
+  it('reports queue connection errors with only the queue identifier', () => {
+    expect(queueOn).toHaveBeenCalledWith('error', expect.any(Function));
+    const onQueueError = queueOn.mock.calls.at(-1)?.[1] as () => void;
+    onQueueError();
+    expect(application).toHaveBeenCalledWith({
+      event: 'invitation.queue_unavailable',
+      queue: INVITATION_EMAIL_QUEUE,
+    });
   });
 });
 
@@ -371,6 +391,7 @@ describe('Nest email queue registration', () => {
         providers: [
           InvitationEmailService,
           { provide: PrismaService, useValue: {} },
+          { provide: LoggingService, useValue: logging },
         ],
       }).compile(),
     ).rejects.toThrow();
@@ -382,6 +403,7 @@ describe('Nest email queue registration', () => {
         InvitationEmailService,
         { provide: PrismaService, useValue: {} },
         { provide: getQueueToken(INVITATION_EMAIL_QUEUE), useValue: queue },
+        { provide: LoggingService, useValue: logging },
       ],
     }).compile();
     try {
@@ -395,10 +417,14 @@ describe('Nest email queue registration', () => {
   });
   it('dispatches invitation jobs through WorkerHost and rejects unsupported job names', async () => {
     const deliver = vi.fn(async () => {});
-    const worker = new EmailNotificationWorker({
-      deliver,
-    } as unknown as InvitationDeliveryService);
-    const data = { invitationId: 'invitation', version: 1 };
+    const worker = new EmailNotificationWorker(
+      { deliver } as unknown as InvitationDeliveryService,
+      logging,
+    );
+    const data = {
+      invitationId: '123e4567-e89b-42d3-a456-426614174000',
+      version: 1,
+    };
     await worker.process({
       name: EmailJobNames.SEND_INVITATION_EMAIL,
       data,
@@ -412,8 +438,53 @@ describe('Nest email queue registration', () => {
     ).rejects.toThrow('Unsupported email job');
     expect(deliver).toHaveBeenCalledTimes(1);
   });
+  it('logs only allowlisted worker diagnostics and job references', () => {
+    vi.clearAllMocks();
+    const worker = new EmailNotificationWorker(
+      {} as InvitationDeliveryService,
+      logging,
+    );
+    const invitationId = '123e4567-e89b-42d3-a456-426614174000';
+    worker.onError(
+      Object.assign(new Error('private Redis diagnostic'), {
+        code: 'ECONNRESET',
+      }),
+    );
+    worker.onFailed({
+      data: { invitationId, version: 2 },
+      attemptsMade: 2,
+      opts: { attempts: 3 },
+    } as Job);
+    worker.onCompleted({
+      data: { invitationId, version: 2 },
+    } as Job);
+
+    expect(application).toHaveBeenNthCalledWith(1, {
+      event: 'email.worker_error',
+      queue: INVITATION_EMAIL_QUEUE,
+      code: 'ECONNRESET',
+    });
+    expect(application).toHaveBeenNthCalledWith(2, {
+      event: 'email.job_failed',
+      queue: INVITATION_EMAIL_QUEUE,
+      invitationId,
+      version: 2,
+      attempt: 2,
+      maxAttempts: 3,
+    });
+    expect(application).toHaveBeenNthCalledWith(3, {
+      event: 'email.job_completed',
+      queue: INVITATION_EMAIL_QUEUE,
+      invitationId,
+      version: 2,
+    });
+    expect(JSON.stringify(application.mock.calls)).not.toContain('private');
+  });
   it('can close safely if startup failed before processor registration', async () => {
-    const worker = new EmailNotificationWorker({} as InvitationDeliveryService);
+    const worker = new EmailNotificationWorker(
+      {} as InvitationDeliveryService,
+      logging,
+    );
     await expect(worker.onModuleDestroy()).resolves.toBeUndefined();
   });
 });
