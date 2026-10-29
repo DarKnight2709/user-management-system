@@ -3,6 +3,16 @@ type ApplicationRequestContext = {
 };
 
 export type ApplicationEventInput =
+  | (HttpRequestFields & {
+      event: 'http.request.completed';
+      statusCode: number;
+      outcome: 'completed';
+    })
+  | (HttpRequestFields & {
+      event: 'http.request.aborted';
+      statusCode: null;
+      outcome: 'aborted';
+    })
   | {
       event: 'auth.refresh_failed';
       requestContext: ApplicationRequestContext;
@@ -13,3 +23,10 @@ export type ApplicationEventInput =
       scope: 'all_sessions';
       requestContext: ApplicationRequestContext;
     };
+
+type HttpRequestFields = {
+  method: string;
+  route: string;
+  durationMs: number;
+  requestContext: ApplicationRequestContext;
+};

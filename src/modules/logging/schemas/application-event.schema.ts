@@ -5,8 +5,55 @@ const requestContextSchema = Joi.object({
   requestId: Joi.string().uuid().required(),
 }).required();
 
+const httpFields = {
+  method: Joi.string()
+    .custom((value: string) =>
+      [
+        'GET',
+        'POST',
+        'PUT',
+        'PATCH',
+        'DELETE',
+        'HEAD',
+        'OPTIONS',
+        'CONNECT',
+        'TRACE',
+      ].includes(value)
+        ? value
+        : 'OTHER',
+    )
+    .required(),
+  // Caller supplies only the registered route template, never the raw URL.
+  route: Joi.string()
+    .custom((value: string) => {
+      // oxlint-disable-next-line no-control-regex -- Reject log control characters.
+      return value.length <= 512 && !/[\u0000-\u001f\u007f]/.test(value)
+        ? value
+        : '[unmatched]';
+    })
+    .required(),
+  durationMs: Joi.number()
+    .integer()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER)
+    .required(),
+  requestContext: requestContextSchema,
+};
+
 export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
   .try(
+    Joi.object({
+      ...httpFields,
+      event: Joi.string().valid('http.request.completed').required(),
+      statusCode: Joi.number().integer().min(100).max(599).required(),
+      outcome: Joi.string().valid('completed').required(),
+    }),
+    Joi.object({
+      ...httpFields,
+      event: Joi.string().valid('http.request.aborted').required(),
+      statusCode: Joi.valid(null).required(),
+      outcome: Joi.string().valid('aborted').required(),
+    }),
     Joi.object({
       event: Joi.string().valid('auth.refresh_failed').required(),
       requestContext: requestContextSchema,

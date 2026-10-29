@@ -11,6 +11,19 @@ AuthService sends both auth.refresh_failed and auth.logout_failed through
 LoggingService.application(). Both retain the original thrown operation error.
 This is not yet a replacement for all application log producers.
 
+## HTTP request summaries
+
+- LoggerMiddleware emits `http.request.completed` or `http.request.aborted`.
+- Fields are method, registered route template (or `[unmatched]`), durationMs,
+  statusCode, outcome and the server-generated request ID.
+- Completion uses info for 1xx-3xx, warn for 4xx and error for 5xx. An aborted
+  request uses warn and a null statusCode.
+- A response emits at most one summary across `finish` and `close`. Completion
+  only means the backend handed off the response; it does not prove receipt.
+- Raw URL, query, headers, body, cookies, tokens and raw errors are excluded.
+- Unknown HTTP methods become `OTHER`; unsafe route templates become `[unmatched]`.
+- Exception-filter diagnostics remain a separate migration step.
+
 ## Input and failure handling
 
 - `event` must be a supported catalog entry. Each event has its own field allowlist.

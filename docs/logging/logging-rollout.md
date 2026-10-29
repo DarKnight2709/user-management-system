@@ -14,7 +14,7 @@ Inventory date: 2026-10-29. This file tracks code inspection, not production ver
 
 | Order | Producer | Current state | Next work |
 | --- | --- | --- | --- |
-| 1 | common/middlewares/logger.middleware.ts | Completed/aborted HTTP records, request ID, duration, safe route fallback; no category/event | Add application category and stable completion/abort events; preserve once-only finish/close handling and null status on abort |
+| 1 | common/middlewares/logger.middleware.ts | Implemented: application events for completed/aborted requests | Verify in Loki; regression tests cover finish/close, severity, null abort status and safe correlation |
 | 2 | common/filters/all-exceptions.filter.ts | http.operational_error, http.payload_too_large, http.unhandled_error | Define allowed diagnostic fields and responsibility for propagated errors; keep 413 and safe HTTP responses |
 | 2 | common/filters/prisma-exception.filter.ts | database.unhandled_error for unhandled Prisma codes | Coordinate with Auth/Prisma logs and request ID; preserve known-error HTTP mappings |
 | 3 | core/database/prisma.service.ts | database.info/warning/error, database_query, slow_database_query via static Nest Logger | Add application classification; preserve development-only SQL opt-in and value-free fingerprints; inspect driver-event duplication |

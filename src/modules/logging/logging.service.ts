@@ -10,7 +10,10 @@ import { AUTH_EVENT_POLICIES } from './policies/auth-event.policy.js';
 import { ConfigService } from '@nestjs/config';
 import type { ApplicationEventInput } from './types/application-event.types.js';
 import { parseApplicationEvent } from './schemas/application-event.schema.js';
-import { APPLICATION_EVENT_POLICIES } from './policies/application-event.policy.js';
+import {
+  APPLICATION_EVENT_POLICIES,
+  applicationEventLevel,
+} from './policies/application-event.policy.js';
 
 type EventEnvelope = {
   eventId: string;
@@ -69,13 +72,14 @@ export class LoggingService implements OnModuleDestroy {
       const event = parseApplicationEvent(input);
       const policy = APPLICATION_EVENT_POLICIES[event.event];
 
-      this.writeConsole(policy.level, {
+      this.writeConsole(applicationEventLevel(event), {
         ...event,
         ...this.envelope(),
         context: 'LoggingService',
         schemaVersion: policy.schemaVersion,
         category: policy.category,
         message: policy.message,
+        requestId: event.requestContext.requestId,
       });
     } catch {
       this.reportFailure('APPLICATION_LOG_FAILED');
