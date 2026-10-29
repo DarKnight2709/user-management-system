@@ -136,7 +136,19 @@ logging failures.
 - Input: event, authenticated userId (UUID), scope `all_sessions`, requestContext.requestId.
 - Trigger: the existing logout-all revocation operation fails after
   transaction retries. The original error must still propagate.
-- Single-family logout failure is not covered by this initial catalog entry.
+- Single-family logout uses the separate `auth.logout_session_failed` event.
+
+## auth.logout_session_failed
+
+- Category: application; level: error; schemaVersion: 1.
+- Message: `Session logout failed`.
+- Input: event, authenticated userId (UUID), scope `session_family`, and
+  requestContext.requestId.
+- Trigger: an unexpected failure while revoking the refresh-token family in
+  `AuthService.logout`. Invalid or expired token validation and token ownership
+  failures are excluded; those remain authentication outcomes.
+- The original operation error is rethrown. The refresh token and family ID are
+  not included in the operational event.
 
 ## Refresh failure example
 

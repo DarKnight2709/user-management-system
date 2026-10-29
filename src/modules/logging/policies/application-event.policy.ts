@@ -245,6 +245,15 @@ export const APPLICATION_EVENT_POLICIES = {
     persistToPostgres: false,
     onLoggingFailure: 'preserve-operation-result',
   },
+  'auth.logout_session_failed': {
+    schemaVersion: 1,
+    category: 'application',
+    level: 'error',
+    message: 'Session logout failed',
+    output: 'winston-console',
+    persistToPostgres: false,
+    onLoggingFailure: 'preserve-operation-result',
+  },
 } as const satisfies Record<
   ApplicationEventInput['event'],
   ApplicationEventPolicy

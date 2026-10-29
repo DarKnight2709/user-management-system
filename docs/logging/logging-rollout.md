@@ -6,6 +6,8 @@ Inventory date: 2026-10-29. This file tracks code inspection, not production ver
 
 - Selected Auth security events use LoggingService.security().
 - auth.refresh_failed and logout-all's auth.logout_failed use application().
+- Single-family logout infrastructure failures use
+  auth.logout_session_failed; invalid token outcomes are excluded.
 - Both operational events are emitted outside transaction retries and rethrow
   the original failure. Raw errors and tokens are excluded from their payloads.
 - Single-family logout has no dedicated operational failure event yet.

@@ -93,11 +93,7 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  async register(
-    dto: RegisterDto,
-    ipAddress?: string,
-    userAgent?: string,
-  ) {
+  async register(dto: RegisterDto, ipAddress?: string, userAgent?: string) {
     // Hash password
     const hashedPassword = await hash(dto.password);
     const emailInput = dto.email.trim().toLowerCase();
@@ -331,26 +327,41 @@ export class AuthService {
     if (payload.sub !== userId) {
       throw new UnauthorizedException('Invalid refresh token');
     }
-    const sessionRef = await this.prisma.serializableTransaction(
-      async (manager) => {
-        const token = await manager.refreshToken.findUnique({
-          where: { id: payload.jti },
+    let sessionRef: string | undefined;
+    try {
+      sessionRef = await this.prisma.serializableTransaction(
+        async (manager) => {
+          const token = await manager.refreshToken.findUnique({
+            where: { id: payload.jti },
+          });
+          if (!token) return undefined;
+          if (
+            token.userId !== userId ||
+            token.userId !== payload.sub ||
+            token.refreshTokenHash !== this.hashToken(refreshToken)
+          ) {
+            throw new UnauthorizedException('Invalid refresh token');
+          }
+          await manager.refreshToken.updateMany({
+            where: { familyId: token.familyId, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+          return token.familyId;
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof UnauthorizedException)) {
+        this.loggingService.application({
+          event: 'auth.logout_session_failed',
+          userId,
+          scope: 'session_family',
+          requestContext: {
+            requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          },
         });
-        if (!token) return undefined;
-        if (
-          token.userId !== userId ||
-          token.userId !== payload.sub ||
-          token.refreshTokenHash !== this.hashToken(refreshToken)
-        ) {
-          throw new UnauthorizedException('Invalid refresh token');
-        }
-        await manager.refreshToken.updateMany({
-          where: { familyId: token.familyId, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-        return token.familyId;
-      },
-    );
+      }
+      throw error;
+    }
 
     this.loggingService.security({
       action: 'auth.logout.completed',

@@ -75,4 +75,26 @@ describe('Auth application error logging', () => {
     });
     expect(logging.security).not.toHaveBeenCalled();
   });
+
+  it('logs session-revocation infrastructure failure but not invalid tokens', async () => {
+    const { service, logging, error } = fixture();
+    const token = jwt.sign({ sub: userId, jti: requestId }, secret, {
+      expiresIn: 60,
+    });
+
+    await requestContext.run({ requestId }, async () => {
+      await expect(service.logout(token, userId)).rejects.toBe(error);
+    });
+
+    expect(logging.application).toHaveBeenCalledExactlyOnceWith({
+      event: 'auth.logout_session_failed',
+      userId,
+      scope: 'session_family',
+      requestContext: { requestId },
+    });
+
+    logging.application.mockClear();
+    await expect(service.logout('invalid-token', userId)).rejects.toThrow();
+    expect(logging.application).not.toHaveBeenCalled();
+  });
 });

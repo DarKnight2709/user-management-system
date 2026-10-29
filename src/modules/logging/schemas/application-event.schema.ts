@@ -260,6 +260,12 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
       scope: Joi.string().valid('all_sessions').required(),
       requestContext: requestContextSchema,
     }),
+    Joi.object({
+      event: Joi.string().valid('auth.logout_session_failed').required(),
+      userId: Joi.string().uuid().required(),
+      scope: Joi.string().valid('session_family').required(),
+      requestContext: requestContextSchema,
+    }),
   )
   .required()
   .prefs({

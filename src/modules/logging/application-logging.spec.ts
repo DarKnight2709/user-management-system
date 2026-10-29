@@ -138,6 +138,12 @@ describe('Application logging boundaries', () => {
     { event: 'application.started', port: 3000 },
     { event: 'application.shutdown_started', signal: 'SIGINT' },
     { event: 'application.shutdown_failed', signal: 'SIGTERM' },
+    {
+      event: 'auth.logout_session_failed',
+      userId,
+      scope: 'session_family',
+      requestContext: { requestId },
+    },
   ])('accepts the safe diagnostic event $event', (input) => {
     expect(parseApplicationEvent(input)).toEqual(input);
   });
@@ -226,6 +232,11 @@ describe('Application logging boundaries', () => {
     {
       event: 'auth.logout_failed',
       userId,
+      scope: 'session_family',
+      requestContext: { requestId },
+    },
+    {
+      event: 'auth.logout_session_failed',
       scope: 'session_family',
       requestContext: { requestId },
     },

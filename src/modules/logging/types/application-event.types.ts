@@ -115,6 +115,12 @@ export type ApplicationEventInput =
       userId: string;
       scope: 'all_sessions';
       requestContext: ApplicationRequestContext;
+    }
+  | {
+      event: 'auth.logout_session_failed';
+      userId: string;
+      scope: 'session_family';
+      requestContext: ApplicationRequestContext;
     };
 
 type HttpRequestFields = {
