@@ -48,6 +48,11 @@ describe('Application logging boundaries', () => {
       requestContext: { requestId },
     },
     {
+      event: 'http.payload_invalid',
+      statusCode: 400,
+      requestContext: { requestId },
+    },
+    {
       event: 'http.unhandled_error',
       statusCode: 500,
       errorType: 'TypeError',

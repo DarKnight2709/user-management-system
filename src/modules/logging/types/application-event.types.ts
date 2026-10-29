@@ -24,6 +24,11 @@ export type ApplicationEventInput =
       requestContext: ApplicationRequestContext;
     }
   | {
+      event: 'http.payload_invalid';
+      statusCode: 400;
+      requestContext: ApplicationRequestContext;
+    }
+  | {
       event: 'http.unhandled_error';
       statusCode: 500;
       errorType: StandardErrorType | 'NonError';

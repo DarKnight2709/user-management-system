@@ -122,6 +122,11 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
       requestContext: requestContextSchema,
     }),
     Joi.object({
+      event: Joi.string().valid('http.payload_invalid').required(),
+      statusCode: Joi.number().valid(400).required(),
+      requestContext: requestContextSchema,
+    }),
+    Joi.object({
       event: Joi.string().valid('http.unhandled_error').required(),
       statusCode: Joi.number().valid(500).required(),
       errorType: Joi.string()

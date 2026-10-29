@@ -47,6 +47,15 @@ export const APPLICATION_EVENT_POLICIES = {
     persistToPostgres: false,
     onLoggingFailure: 'preserve-operation-result',
   },
+  'http.payload_invalid': {
+    schemaVersion: 1,
+    category: 'application',
+    level: 'warn',
+    message: 'Request body is malformed',
+    output: 'winston-console',
+    persistToPostgres: false,
+    onLoggingFailure: 'preserve-operation-result',
+  },
   'http.unhandled_error': {
     schemaVersion: 1,
     category: 'application',

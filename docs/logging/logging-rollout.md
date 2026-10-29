@@ -17,7 +17,8 @@ Inventory date: 2026-10-29. This file tracks code inspection, not production ver
 | Order | Producer                                            | Current state                                                                                                    | Next work                                                                                                                |
 | ----- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | 1     | common/middlewares/logger.middleware.ts             | Implemented: application events for completed/aborted requests                                                   | Verify in Loki; regression tests cover finish/close, severity, null abort status and safe correlation                    |
-| 2     | common/filters/all-exceptions.filter.ts             | Implemented: cataloged safe diagnostics for caused HTTP errors, parser 413 and unexpected errors                 | Verify correlation and safe stack-frame rendering in Loki                                                                |
+| 2     | common/filters/all-exceptions.filter.ts             | Implemented: cataloged safe diagnostics for caused HTTP errors and unexpected errors                             | Verify correlation and safe stack-frame rendering in Loki                                                                |
+| 2     | common/middlewares/body-parser-error.middleware.ts  | Implemented: handles malformed/oversized request bodies before Nest routes; logs safe 400/413 events             | Production proxy/error-path behavior remains unverified                                                                  |
 | 2     | common/filters/prisma-exception.filter.ts           | Implemented: cataloged unhandled known-Prisma-code diagnostics                                                   | Verify correlation in Loki; known HTTP mappings remain log-free here                                                     |
 | 3     | core/database/prisma.service.ts                     | Implemented: cataloged driver/query diagnostics through application logging                                      | Verify debug filtering, slow-query grouping and optional HTTP correlation in Loki                                        |
 | 4     | modules/users/avatar-cleanup.service.ts             | Implemented: cataloged retry and terminal worker diagnostics                                                     | Verify retry grouping and failure categories in Loki                                                                     |
@@ -71,6 +72,10 @@ application runtime.
 - An unauthenticated `/auth/me` request returned 401 and its status appeared in
   the HTTP completion log in Loki. A 102401-byte body sent to `/auth/login`
   returned 413 and produced the payload-too-large diagnostic in Loki.
+- After the parser-error middleware fix, malformed JSON to `/auth/login`
+  returned a fixed 400 response with `X-Request-ID`; Loki contained the matching
+  `http.payload_invalid` event. The 102401-byte request still returned 413 and
+  Loki contained `http.payload_too_large`.
 - Temporarily stopping only the local UMS PostgreSQL container made
   `/health/ready` return 503; Loki recorded the status. Starting PostgreSQL again
   restored readiness to 200. No database data was modified.
