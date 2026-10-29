@@ -71,12 +71,18 @@ application runtime.
 - An unauthenticated `/auth/me` request returned 401 and its status appeared in
   the HTTP completion log in Loki. A 102401-byte body sent to `/auth/login`
   returned 413 and produced the payload-too-large diagnostic in Loki.
+- Temporarily stopping only the local UMS PostgreSQL container made
+  `/health/ready` return 503; Loki recorded the status. Starting PostgreSQL again
+  restored readiness to 200. No database data was modified.
 - The oversized request included the synthetic marker
   `SAFE_LOG_REDACTION_SENTINEL_20261029`; searching Loki for it returned no
   records. This checks that this request body was not logged, not all possible
   secret-redaction paths.
 - Loki config has `retention_enabled: true` and `retention_period: 168h`. Actual
-  deletion of data older than seven days has not been observed.
+  deletion of data older than seven days has not been observed. At this check,
+  Loki metrics showed the compactor running but
+  `loki_compactor_apply_retention_last_successful_run_timestamp_seconds` was
+  still zero, so no successful retention sweep had yet been reported.
 - After backend replacement, Alloy continued querying the old Docker container
   ID during this check. Restarting Alloy refreshed discovery and the new
   backend's events then appeared in Loki. This observation is local only and
