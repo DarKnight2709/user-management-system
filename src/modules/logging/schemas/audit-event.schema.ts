@@ -114,6 +114,17 @@ const userAuditEventSchema = Joi.object({
   requestContext: Joi.object({ requestId: idSchema }).required(),
 });
 
+const userRegistrationAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('ANONYMOUS').required(),
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
 const organizationNameSchema = Joi.string().min(1).max(100).required();
 const organizationSlugSchema = Joi.string()
   .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
@@ -123,6 +134,12 @@ const organizationSlugSchema = Joi.string()
 
 export const auditEventSchema = Joi.alternatives<AuditEventInput>()
   .try(
+    userRegistrationAuditEventSchema.keys({
+      action: Joi.string().valid('user.registered').required(),
+      payload: Joi.object({
+        registrationMethod: Joi.string().valid('PASSWORD').required(),
+      }).required(),
+    }),
     userAuditEventSchema.keys({
       action: Joi.string().valid('user.profile.updated').required(),
       payload: Joi.object({

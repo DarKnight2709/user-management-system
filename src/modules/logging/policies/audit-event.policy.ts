@@ -25,6 +25,19 @@ type AuditEventPolicy = {
 };
 
 export const AUDIT_POLICIES = {
+  'user.registered': {
+    schemaVersion: 1,
+    category: 'audit',
+    persistToPostgres: true,
+    transaction: 'required',
+    output: 'winston-console',
+    publishCopy: 'after-commit',
+    outcome: 'SUCCESS',
+    level: 'info',
+    emitWhen: 'business-change-committed',
+    onPersistenceFailure: 'rollback',
+    onLoggingFailure: 'preserve-business-result',
+  },
   'user.profile.updated': {
     schemaVersion: 1,
     category: 'audit',

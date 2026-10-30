@@ -149,16 +149,35 @@ export class UsersService {
   }
 
   async create(user: CreateUserDto): Promise<User> {
-    const newUser = await this.prismaService.user.create({
-      data: Object.assign({}, user, {
-        email: user.email.trim().toLowerCase(),
-        username: user.username.trim().toLowerCase(),
-      }),
-      omit: {
-        hashedPassword: true,
-      },
-    });
+    const { newUser, auditEvent } =
+      await this.prismaService.serializableTransaction(async (manager) => {
+        const newUser = await manager.user.create({
+          data: {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            birthDate: user.birthDate,
+            hashedPassword: user.hashedPassword,
+            email: user.email.trim().toLowerCase(),
+            username: user.username.trim().toLowerCase(),
+          },
+          omit: { hashedPassword: true },
+        });
+        const auditEvent = await this.logging.audit(
+          {
+            action: 'user.registered',
+            actor: { type: 'ANONYMOUS' },
+            target: { type: 'USER', id: newUser.id },
+            payload: { registrationMethod: 'PASSWORD' },
+            requestContext: {
+              requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            },
+          },
+          manager,
+        );
+        return { newUser, auditEvent };
+      });
 
+    this.logging.publishCommittedAudit(auditEvent);
     return this.toUserResponse(newUser);
   }
 

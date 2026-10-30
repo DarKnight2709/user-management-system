@@ -38,6 +38,7 @@ enum InvitationDeliveryStatus {
 enum AuditActorType {
   USER
   SYSTEM
+  ANONYMOUS
 }
 
 enum AuditTargetType {
