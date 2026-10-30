@@ -204,6 +204,21 @@ environment. Prisma driver/query events go through the validated application
 event catalog and Winston using fixed messages; raw driver messages, targets,
 SQL and parameters are omitted.
 
+#### Audit events
+
+Committed business changes are recorded in PostgreSQL `audit_events` in the
+same transaction as the change. A Winston copy is emitted after commit and is
+best-effort; PostgreSQL is authoritative. If writing the audit row fails, the
+business transaction rolls back. Audit rows currently cover user registration,
+profile changes, password changes, avatar changes and account deletion, plus
+organization creation/update/deletion, ownership transfer, membership and role
+changes, and invitation creation/resend/revocation/acceptance. Profile values,
+passwords/hashes, invitation email addresses, tokens and avatar object keys are
+not included in audit payloads. Failed authentication/authorization and
+session activity remain security events; queue and cleanup state transitions
+remain application/operational logs. Apply pending Prisma migrations before
+using the new anonymous registration actor in an existing database.
+
 Fill the empty database and storage fields with your configured credentials.
 Generate each JWT secret separately using this command (run it twice):
 
