@@ -17,9 +17,10 @@ A REST API backend under active development, built with **NestJS 12**, **Postgre
 This repository is an API backend; it does not include a frontend. The local
 Compose setup is not a production deployment configuration.
 
-- **Authorization:** platform permission checks and organization guard infrastructure
-  exist, but organization endpoints, role assignment validation, ownership transfer,
-  remain unfinished; deletion auditing is intentionally deferred. Account deletion protects owners of
+- **Authorization:** platform and organization permission checks protect user,
+  organization, membership, role, invitation, ownership-transfer, deletion, and
+  audit-read endpoints. Future assignment/restoration paths must preserve the
+  existing scope and hierarchy safeguards. Account deletion protects owners of
   undeleted organizations and the SUPER_ADMIN account (including self-deletion). Current
   deletion concurrency was verified against local PostgreSQL; future role/ownership
   mutation flows still need coordinated safeguards and verification.
@@ -200,8 +201,36 @@ the corresponding objects are also moved.
 enables query DEBUG metadata only when `NODE_ENV=development` and the configured
 log level permits debug output. Records contain a SHA-256 query fingerprint and
 duration, never raw SQL or parameters. Slow-query warnings remain enabled in every
-environment. Prisma info/warn/error events go through Nest/Winston using fixed
-messages; raw driver messages and targets are omitted.
+environment. Prisma driver/query events go through the validated application
+event catalog and Winston using fixed messages; raw driver messages, targets,
+SQL and parameters are omitted.
+
+#### Audit events
+
+Committed business changes are recorded in PostgreSQL `audit_events` in the
+same transaction as the change. A Winston copy is emitted after commit and is
+best-effort; PostgreSQL is authoritative. If writing the audit row fails, the
+business transaction rolls back. Audit rows currently cover user registration,
+profile changes, password changes, avatar changes and account deletion, plus
+organization creation/update/deletion, ownership transfer, membership and role
+changes, and invitation creation/resend/revocation/acceptance. Profile values,
+passwords/hashes, invitation email addresses, tokens and avatar object keys are
+not included in audit payloads. Failed authentication/authorization and
+session activity remain security events; queue and cleanup state transitions
+remain application/operational logs. Apply pending Prisma migrations before
+using the new anonymous registration actor in an existing database.
+
+Audit read endpoints are registered in the independent `AuditModule` under
+`src/modules/audit/`. Audit event policy, validation, persistence and Winston
+publishing remain with `LoggingModule`.
+
+Audit history is available through `GET /audit-logs` for platform users with
+`AUDIT_LOG:read`, and `GET /organizations/:organizationId/audit-logs` for the
+organization owner or a built-in ADMIN with
+`ORGANIZATION_AUDIT_LOG:read`. Platform results can include every organization;
+organization results are always scoped to the route organization. Both routes
+are paginated, support bounded filters, disable HTTP caching, and record
+successful reads as `audit.log.viewed` events.
 
 Fill the empty database and storage fields with your configured credentials.
 Generate each JWT secret separately using this command (run it twice):
@@ -343,23 +372,29 @@ bootstrap credentials:
 npm run prisma:seed:organization-permissions
 ```
 
-This requires `DATABASE_URL` and applied migrations. It upserts 11 permissions
+This requires `DATABASE_URL` and applied migrations. It upserts 12 permissions
 in one transaction: ORGANIZATION read/update,
 ORGANIZATION_MEMBER read/invite/remove, and ORGANIZATION_ROLE
-create/read/update/delete/assign/revoke. ORGANIZATION delete belongs to the platform
-admin catalog; organization deletion and ownership transfer use ownership checks,
-not organization role grants.
+create/read/update/delete/assign/revoke, plus ORGANIZATION_AUDIT_LOG read.
+ORGANIZATION delete belongs to the platform admin catalog; organization deletion
+and ownership transfer use ownership checks, not organization role grants.
 Reruns preserve permission IDs and soft-deleted state; they update descriptions
-without restoring revoked permissions. No users, roles, or assignments are created
-or changed. Never run seeds at application startup.
+without restoring revoked permissions. The seed grants only audit-read access to
+existing built-in organization ADMIN roles; other role assignments remain
+untouched, and revoked audit permission links remain revoked. Custom roles cannot
+receive this permission. Never run seeds at application startup. The admin
+bootstrap provisions `AUDIT_LOG:read` for SUPER_ADMIN; rerun
+`npm run prisma:seed` to update an existing installation. Existing admin
+credentials and profile are preserved.
 
 Default ADMIN permissions are organization read/update, member
-read/invite/remove, and role read. MEMBER receives organization/member/role read.
+read/invite/remove, role read, and organization audit read. MEMBER receives
+organization/member/role read, without audit access.
 Owners derive authority from ownerId. Within an organization, deletion, ownership
 transfer, and granting/revoking the built-in ADMIN role remain owner-only service
 rules. Custom role management must validate organization scope, protect built-in
 roles, and restrict permission delegation; catalog entries alone enforce none of
-these rules. The seed grants no new permissions to existing roles.
+these rules.
 
 `POST /organizations` accepts `{ "name": "My Team", "slug": "my-team" }`
 from any authenticated active user and returns 201 with the organization in the
@@ -477,7 +512,8 @@ USER:delete and ownership checks still apply. Missing targets return
 404; authorized repeat deletion is a no-op returning 204. Inactive actors receive
 401, and unauthorized cross-account deletion receives 403 before target lookup.
 Memberships, role assignments, and the current avatar are retained; JWT
-authentication rejects deleted users. Audit recording is intentionally deferred.
+authentication rejects deleted users. Successful deletion writes `user.deleted`
+to `audit_events` in the deletion/refresh-session revocation transaction.
 See [USER_DELETION_VERIFICATION.md](USER_DELETION_VERIFICATION.md) for the real
 database scenarios, retry fix, and verification limits. The
 remaining authorization work is summarized in Project Status and Remaining Work.
@@ -516,8 +552,9 @@ workers exclude the deleted organization on subsequent checks. In-flight emails
 cannot be recalled. No Redis/SMTP side effects occur in the deletion transaction.
 Authorized repeated deletion is a no-op, preserving the original deletion time;
 current caller authority is always rechecked. Owning only deleted organizations no
-longer blocks account deletion. The slug remains reserved. Restoration, retention
-cleanup and audit recording are not implemented.
+longer blocks account deletion. The slug remains reserved. Successful deletion is
+recorded as `organization.deleted`; restoration and retention cleanup are not
+implemented.
 
 ### Organization ownership transfer
 
@@ -539,7 +576,8 @@ the former owner returns 403; transfer is not an idempotent retry operation.
 Forced-overlap PostgreSQL tests cover competing transfers and races with recipient
 account deletion and member removal. Ownership remains unique and attached to an
 active member with a nondeleted account. There is no migration or seed operation.
-Audit recording, transfer notifications and recipient acceptance are not implemented.
+Ownership transfer is recorded as `organization.ownership.transferred`.
+Transfer notifications and recipient acceptance are not implemented.
 
 ### Your organization permissions
 
@@ -643,8 +681,8 @@ organization access without deleting the user or revoking their account sessions
 Authorized repeated removal is idempotent. Authorization, organization scoping,
 owner protection, role checks and removal share a serializable transaction with
 bounded retries. Concurrent repeated removal is verified in a disposable local
-PostgreSQL schema. Future role/ownership mutations must coordinate these rules.
-Restoration, leaving an organization and audit recording remain separate work.
+PostgreSQL schema. Removal and self-leave are recorded in audit_events. Future
+role/ownership mutations and membership restoration must preserve these rules.
 
 ### Leave an organization
 

@@ -1,24 +1,25 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { InvitationLinksService } from './invitation-links.service.js';
 import { EmailService } from './email.service.js';
 import type { SendInvitationJobData } from '../interfaces/send-invitation-job.interface.js';
 import { safeEmailErrorDetails } from '../utils/email-error.util.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import type { InvitationDeliveryStage } from '@/modules/logging/types/application-event.types.js';
 
 @Injectable()
 export class InvitationDeliveryService {
-  private readonly logger = new Logger(InvitationDeliveryService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly links: InvitationLinksService,
     private readonly email: EmailService,
+    private readonly logging: LoggingService,
   ) {}
 
   async deliver(job: SendInvitationJobData): Promise<void> {
     this.validateJob(job);
     const { invitationId, version } = job;
-    let stage = 'database-read';
+    let stage: InvitationDeliveryStage = 'database-read';
     try {
       const invitation = await this.prisma.organizationInvitation.findUnique({
         where: { id: invitationId },
@@ -60,8 +61,7 @@ export class InvitationDeliveryService {
         data: { deliveryStatus: 'SENT', sentAt: new Date() },
       });
     } catch (error) {
-      this.logger.warn({
-        message: 'Invitation email delivery failed',
+      this.logging.application({
         event: 'invitation.delivery_failed',
         invitationId,
         version,
@@ -76,7 +76,9 @@ export class InvitationDeliveryService {
   private validateJob({ invitationId, version }: SendInvitationJobData): void {
     if (
       typeof invitationId !== 'string' ||
-      !invitationId.trim() ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        invitationId,
+      ) ||
       !Number.isInteger(version) ||
       version < 1
     ) {
@@ -95,8 +97,7 @@ export class InvitationDeliveryService {
         data: { deliveryStatus: 'FAILED' },
       });
     } catch (error) {
-      this.logger.warn({
-        message: 'Invitation delivery failure could not be recorded',
+      this.logging.application({
         event: 'invitation.failure_record_failed',
         invitationId,
         version,

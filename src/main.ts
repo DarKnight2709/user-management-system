@@ -3,18 +3,21 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { Logger } from '@nestjs/common';
 import {
   WINSTON_MODULE_NEST_PROVIDER,
   WINSTON_MODULE_PROVIDER,
 } from 'nest-winston';
 import type { Logger as WinstonLogger } from 'winston';
 import { registerGracefulShutdown } from './core/logging/graceful-shutdown.js';
+import { LoggingService } from './modules/logging/logging.service.js';
 import helmet from 'helmet';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { createBodyParserErrorMiddleware } from './common/middlewares/body-parser-error.middleware.js';
+import express from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
     bufferLogs: true, // Buffer logs until the logger is set up
     // Without buffering, the early startup messages use Nest’s default logger
   });
@@ -27,6 +30,11 @@ async function bootstrap() {
     configService.get<string>('NODE_ENV') === 'production' ? 1 : false,
   );
   app.use(helmet());
+  const loggingService = app.get(LoggingService);
+  app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+  app.use(createBodyParserErrorMiddleware(loggingService));
+
   const port = configService.get<number>('PORT', 3000);
   const swaggerEnabled =
     configService.get<string>('NODE_ENV') === 'development';
@@ -43,18 +51,17 @@ async function bootstrap() {
     SwaggerModule.setup('api-docs', app, document);
   }
 
+  await app.init();
+
   // Own SIGINT/SIGTERM so Nest closes fully before logging is flushed.
   // Do not also enable Nest signal handlers: they can terminate before our flush.
   registerGracefulShutdown(
     app,
     app.get<WinstonLogger>(WINSTON_MODULE_PROVIDER),
+    (event) => loggingService.application(event),
   );
   await app.listen(port);
 
-  const logger = new Logger('Bootstrap');
-  logger.log(`Application is running on: http://localhost:${port}`);
-  if (swaggerEnabled) {
-    logger.log(`Swagger documentation: http://localhost:${port}/api-docs`);
-  }
+  loggingService.application({ event: 'application.started', port });
 }
 await bootstrap();

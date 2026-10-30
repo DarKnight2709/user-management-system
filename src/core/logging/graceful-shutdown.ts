@@ -1,8 +1,13 @@
-import { Logger } from '@nestjs/common';
 import type { Logger as WinstonLogger } from 'winston';
 import { flushLogger } from './flush-logger.js';
+import type { ApplicationEventInput } from '../../modules/logging/types/application-event.types.js';
 
 type Signal = 'SIGINT' | 'SIGTERM';
+type ShutdownEvent = Extract<
+  ApplicationEventInput,
+  { event: 'application.shutdown_started' | 'application.shutdown_failed' }
+>;
+type WriteShutdownEvent = (event: ShutdownEvent) => void;
 
 interface ShutdownProcess {
   on(signal: Signal, listener: () => void): unknown;
@@ -13,6 +18,7 @@ interface ShutdownProcess {
 export function registerGracefulShutdown(
   app: { close(signal?: string): Promise<void> },
   logger: WinstonLogger,
+  writeShutdownEvent: WriteShutdownEvent,
   {
     platform = process,
     shutdownTimeoutMs = 30_000,
@@ -23,7 +29,6 @@ export function registerGracefulShutdown(
     flushTimeoutMs?: number;
   } = {},
 ) {
-  const lifecycleLogger = new Logger('Shutdown');
   let shutdownPromise: Promise<void> | undefined;
   let exiting = false;
 
@@ -39,23 +44,21 @@ export function registerGracefulShutdown(
       platform.exit(1);
     }, shutdownTimeoutMs);
     try {
-      lifecycleLogger.log({
-        message: 'Application shutdown started',
-        event: 'application.shutdown',
-        signal,
-      });
+      try {
+        writeShutdownEvent({ event: 'application.shutdown_started', signal });
+      } catch {
+        // Logging must not prevent resource cleanup.
+      }
       try {
         // Nest 12 forwards this signal to its lifecycle hooks.
         await app.close(signal);
       } catch {
         if (exiting) return;
-        lifecycleLogger.error(
-          {
-            message: 'Application shutdown failed',
-            event: 'application.shutdown_failed',
-          },
-          undefined,
-        );
+        try {
+          writeShutdownEvent({ event: 'application.shutdown_failed', signal });
+        } catch {
+          // Cleanup failure handling must not depend on the logging pipeline.
+        }
         // Cleanup did not complete: do not end a logger that workers may still use.
         exiting = true;
         platform.exit(1);

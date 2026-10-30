@@ -14,6 +14,9 @@ import { PrismaService } from '@/core/database/prisma.service.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { assertValidPagination } from '@/common/utils/pagination.util.js';
 import { organizationPermissions } from '@/common/constants/organization-permissions.constant.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
+import { randomUUID } from 'node:crypto';
 
 const catalogFilter = organizationPermissions.map(({ resource, action }) => ({
   resource,
@@ -46,11 +49,35 @@ const isCatalogPermission = (permission: {
       entry.action === permission.action,
   );
 
+const isAssignablePermission = (permission: {
+  resource: string;
+  action: string;
+}) =>
+  isCatalogPermission(permission) &&
+  !(
+    permission.resource === 'ORGANIZATION_AUDIT_LOG' &&
+    permission.action === 'read'
+  );
+
+const auditPermissions = (permissions: RolePermission[]) =>
+  permissions.map(({ id, resource, action }) => ({ id, resource, action }));
+
+const currentRequestId = () =>
+  requestContext.getStore()?.requestId ?? randomUUID();
+
+const sameIds = (currentIds: string[], requestedIds: string[]) => {
+  if (currentIds.length !== requestedIds.length) return false;
+  const current = [...currentIds].sort();
+  const requested = [...requestedIds].sort();
+  return current.every((id, index) => id === requested[index]);
+};
+
 @Injectable()
 export class OrganizationRolesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
+    private readonly logging: LoggingService,
   ) {}
 
   private async authorize(
@@ -92,29 +119,51 @@ export class OrganizationRolesService {
       );
     }
 
-    return this.prisma.serializableTransaction(async (manager) => {
-      await this.authorize(manager, actorId, organizationId, 'create');
-      const permissions = await this.loadGrantablePermissions(
-        manager,
-        actorId,
-        organizationId,
-        input.permissionIds,
-      );
-      await this.assertNameAvailable(manager, organizationId, input.name);
-
-      const role = await manager.role.create({
-        data: {
+    const { result, auditEvent } = await this.prisma.serializableTransaction(
+      async (manager) => {
+        await this.authorize(manager, actorId, organizationId, 'create');
+        const permissions = await this.loadGrantablePermissions(
+          manager,
+          actorId,
           organizationId,
-          name: input.name,
-          isSystem: false,
-          rolePermissions: {
-            create: permissions.map(({ id }) => ({ permissionId: id })),
+          input.permissionIds,
+        );
+        await this.assertNameAvailable(manager, organizationId, input.name);
+
+        const role = await manager.role.create({
+          data: {
+            organizationId,
+            name: input.name,
+            isSystem: false,
+            rolePermissions: {
+              create: permissions.map(({ id }) => ({ permissionId: id })),
+            },
           },
-        },
-        select: roleDetails,
-      });
-      return { ...role, isBuiltIn: false, permissions };
-    });
+          select: roleDetails,
+        });
+        const auditEvent = await this.logging.audit(
+          {
+            action: 'organization.role.created',
+            actor: { type: 'USER', id: actorId },
+            target: { type: 'ROLE', id: role.id },
+            organizationId,
+            payload: {
+              name: role.name,
+              permissions: auditPermissions(permissions),
+            },
+            requestContext: { requestId: currentRequestId() },
+          },
+          manager,
+        );
+
+        return {
+          result: { ...role, isBuiltIn: false, permissions },
+          auditEvent,
+        };
+      },
+    );
+    this.logging.publishCommittedAudit(auditEvent);
+    return result;
   }
 
   async updateForActor(
@@ -125,52 +174,107 @@ export class OrganizationRolesService {
   ) {
     const input = this.validateUpdate(dto);
 
-    return this.prisma.serializableTransaction(async (manager) => {
-      await this.authorize(manager, actorId, organizationId, 'update');
-      const role = await this.findCustomRole(manager, organizationId, roleId);
-      const currentPermissions = role.rolePermissions.map(
-        ({ permission }) => permission,
-      );
-      await this.assertCanManageRole(
-        manager,
-        actorId,
-        organizationId,
-        currentPermissions,
-      );
-
-      if (input.name !== undefined) {
-        await this.assertNameAvailable(
-          manager,
-          organizationId,
-          input.name,
-          roleId,
+    const { result, auditEvent } = await this.prisma.serializableTransaction(
+      async (manager) => {
+        await this.authorize(manager, actorId, organizationId, 'update');
+        const role = await this.findCustomRole(manager, organizationId, roleId);
+        const currentPermissions = role.rolePermissions.map(
+          ({ permission }) => permission,
         );
-      }
-      const permissions =
-        input.permissionIds === undefined
-          ? currentPermissions.filter(isCatalogPermission)
-          : await this.loadGrantablePermissions(
-              manager,
-              actorId,
-              organizationId,
-              input.permissionIds,
-            );
+        await this.assertCanManageRole(
+          manager,
+          actorId,
+          organizationId,
+          currentPermissions,
+        );
 
-      if (input.permissionIds !== undefined) {
-        await this.replacePermissions(manager, roleId, input.permissionIds);
-      }
-      const updated = await manager.role.update({
-        where: {
-          id: roleId,
-        },
-        data: {
-          updatedAt: new Date(),
-          ...(input.name === undefined ? {} : { name: input.name }),
-        },
-        select: roleDetails,
-      });
-      return { ...updated, isBuiltIn: false, permissions };
-    });
+        if (input.name !== undefined) {
+          await this.assertNameAvailable(
+            manager,
+            organizationId,
+            input.name,
+            roleId,
+          );
+        }
+        const permissions =
+          input.permissionIds === undefined
+            ? currentPermissions.filter(isCatalogPermission)
+            : await this.loadGrantablePermissions(
+                manager,
+                actorId,
+                organizationId,
+                input.permissionIds,
+              );
+
+        const nameChanged =
+          input.name !== undefined && input.name !== role.name;
+        const permissionIdsChanged =
+          input.permissionIds !== undefined &&
+          !sameIds(
+            currentPermissions.map(({ id }) => id),
+            input.permissionIds,
+          );
+
+        if (!nameChanged && !permissionIdsChanged) {
+          return {
+            result: {
+              id: role.id,
+              name: role.name,
+              createdAt: role.createdAt,
+              updatedAt: role.updatedAt,
+              isBuiltIn: false,
+              permissions: currentPermissions.filter(isCatalogPermission),
+            },
+            auditEvent: null,
+          };
+        }
+
+        if (permissionIdsChanged && input.permissionIds !== undefined) {
+          await this.replacePermissions(manager, roleId, input.permissionIds);
+        }
+        const updated = await manager.role.update({
+          where: {
+            id: roleId,
+          },
+          data: {
+            updatedAt: new Date(),
+            ...(nameChanged ? { name: input.name } : {}),
+          },
+          select: roleDetails,
+        });
+        const before = {
+          name: role.name,
+          permissions: auditPermissions(currentPermissions),
+        };
+        const afterPermissions = permissionIdsChanged
+          ? permissions
+          : currentPermissions;
+        const auditEvent = await this.logging.audit(
+          {
+            action: 'organization.role.updated',
+            actor: { type: 'USER', id: actorId },
+            target: { type: 'ROLE', id: role.id },
+            organizationId,
+            payload: {
+              before,
+              after: {
+                name: updated.name,
+                permissions: auditPermissions(afterPermissions),
+              },
+            },
+            requestContext: { requestId: currentRequestId() },
+          },
+          manager,
+        );
+
+        return {
+          result: { ...updated, isBuiltIn: false, permissions },
+          auditEvent,
+        };
+      },
+    );
+    if (auditEvent) this.logging.publishCommittedAudit(auditEvent);
+    return result;
   }
 
   async deleteForActor(
@@ -178,27 +282,47 @@ export class OrganizationRolesService {
     organizationId: string,
     roleId: string,
   ): Promise<void> {
-    await this.prisma.serializableTransaction(async (manager) => {
-      await this.authorize(manager, actorId, organizationId, 'delete');
-      const role = await this.findCustomRole(
-        manager,
-        organizationId,
-        roleId,
-        true,
-      );
-      await this.assertCanManageRole(
-        manager,
-        actorId,
-        organizationId,
-        role.rolePermissions.map(({ permission }) => permission),
-      );
-      if (role.deletedAt) return;
+    const auditEvent = await this.prisma.serializableTransaction(
+      async (manager) => {
+        await this.authorize(manager, actorId, organizationId, 'delete');
+        const role = await this.findCustomRole(
+          manager,
+          organizationId,
+          roleId,
+          true,
+        );
+        await this.assertCanManageRole(
+          manager,
+          actorId,
+          organizationId,
+          role.rolePermissions.map(({ permission }) => permission),
+        );
+        if (role.deletedAt) return null;
 
-      await manager.role.update({
-        where: { id: role.id, organizationId },
-        data: { deletedAt: new Date() },
-      });
-    });
+        await manager.role.update({
+          where: { id: role.id, organizationId },
+          data: { deletedAt: new Date() },
+        });
+
+        return this.logging.audit(
+          {
+            action: 'organization.role.deleted',
+            actor: { type: 'USER', id: actorId },
+            target: { type: 'ROLE', id: role.id },
+            organizationId,
+            payload: {
+              name: role.name,
+              permissions: auditPermissions(
+                role.rolePermissions.map(({ permission }) => permission),
+              ),
+            },
+            requestContext: { requestId: currentRequestId() },
+          },
+          manager,
+        );
+      },
+    );
+    if (auditEvent) this.logging.publishCommittedAudit(auditEvent);
   }
 
   async listForActor(
@@ -267,7 +391,9 @@ export class OrganizationRolesService {
         );
       return manager.permission.findMany({
         where: {
-          id: { in: grantable.map(({ id }) => id) },
+          id: {
+            in: grantable.filter(isAssignablePermission).map(({ id }) => id),
+          },
           deletedAt: null,
           OR: catalogFilter,
         },
@@ -316,6 +442,8 @@ export class OrganizationRolesService {
       select: {
         id: true,
         name: true,
+        createdAt: true,
+        updatedAt: true,
         deletedAt: true,
         rolePermissions: {
           where: {
@@ -360,7 +488,7 @@ export class OrganizationRolesService {
         permissions,
         manager,
       ));
-    if (!permissions.every(isCatalogPermission) || !withinAuthority) {
+    if (!permissions.every(isAssignablePermission) || !withinAuthority) {
       throw new ForbiddenException(
         'Cannot manage a role beyond your organization authority',
       );
@@ -383,7 +511,10 @@ export class OrganizationRolesService {
       select: permissionDetails,
     });
 
-    if (permissions.length !== permissionIds.length) {
+    if (
+      permissions.length !== permissionIds.length ||
+      !permissions.every(isAssignablePermission)
+    ) {
       throw new UnprocessableEntityException(
         'Permissions must be active organization catalog entries',
       );

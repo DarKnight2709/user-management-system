@@ -4,9 +4,9 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider        = "prisma-client"
-  output          = "../src/generated/prisma"
-  previewFeatures = ["partialIndexes"]
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  previewFeatures     = ["partialIndexes"]
   moduleFormat        = "esm"
   importFileExtension = "js"
 }
@@ -33,6 +33,21 @@ enum InvitationDeliveryStatus {
   QUEUED
   SENT
   FAILED
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+  ANONYMOUS
+}
+
+enum AuditTargetType {
+  USER
+  ORGANIZATION
+  ORGANIZATION_MEMBER
+  ROLE
+  ORGANIZATION_INVITATION
+  AUDIT_LOG
 }
 
 model User {
@@ -229,4 +244,25 @@ model Permission {
 
   @@unique([action, resource])
   @@map("permissions")
+}
+
+model AuditEvent {
+  eventId        String          @id @map("event_id") @db.Uuid
+  schemaVersion  Int             @map("schema_version")
+  action         String
+  actorId        String?         @map("actor_id")
+  actorType      AuditActorType  @map("actor_type")
+  targetId       String          @map("target_id")
+  targetType     AuditTargetType @map("target_type")
+  organizationId String?         @map("organization_id")
+  requestId      String          @map("request_id")
+  occurredAt     DateTime        @map("occurred_at") @db.Timestamptz(3)
+  recordedAt     DateTime        @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  payload        Json
+
+  @@index([actorId, occurredAt, eventId])
+  @@index([targetType, targetId, occurredAt, eventId])
+  @@index([action, occurredAt, eventId])
+  @@index([organizationId, occurredAt, eventId])
+  @@map("audit_events")
 }

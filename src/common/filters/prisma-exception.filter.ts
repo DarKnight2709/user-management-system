@@ -3,16 +3,19 @@ import {
   Catch,
   ExceptionFilter,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import { Prisma } from '@/generated/prisma/client.js';
 import { HttpAdapterHost } from '@nestjs/core';
+import { randomUUID } from 'node:crypto';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
 
 @Catch(Prisma.PrismaClientKnownRequestError)
 export class PrismaClientExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(PrismaClientExceptionFilter.name);
-
-  constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
+  constructor(
+    private readonly httpAdapterHost: HttpAdapterHost,
+    private readonly logging: LoggingService,
+  ) {}
 
   catch(
     exception: Prisma.PrismaClientKnownRequestError,
@@ -55,14 +58,13 @@ export class PrismaClientExceptionFilter implements ExceptionFilter {
       }
       default:
         // Raw Prisma messages and metadata can include SQL and sensitive values.
-        this.logger.error(
-          {
-            message: 'Unhandled database error',
-            event: 'database.unhandled_error',
-            code: exception.code,
+        this.logging.application({
+          event: 'database.unhandled_error',
+          code: exception.code,
+          requestContext: {
+            requestId: requestContext.getStore()?.requestId ?? randomUUID(),
           },
-          undefined,
-        );
+        });
         break;
     }
     const responseBody = {

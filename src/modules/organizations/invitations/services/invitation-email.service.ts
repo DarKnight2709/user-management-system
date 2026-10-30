@@ -1,31 +1,32 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { EmailJobNames } from '@/common/enums/email-job-names.enum.js';
 import { INVITATION_EMAIL_QUEUE } from '../constants/email-queue.constant.js';
 import type { SendInvitationJobData } from '../interfaces/send-invitation-job.interface.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
 
 @Injectable()
 export class InvitationEmailService {
-  private readonly logger = new Logger(InvitationEmailService.name);
-
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @InjectQueue(INVITATION_EMAIL_QUEUE)
     private readonly queue: Queue<SendInvitationJobData>,
+    private readonly logging: LoggingService,
   ) {
-    this.queue.on('error', () =>
-      this.logger.warn({
-        message: 'Invitation queue connection unavailable',
+    this.queue.on('error', () => {
+      this.logging.application({
         event: 'invitation.queue_unavailable',
         queue: INVITATION_EMAIL_QUEUE,
-      }),
-    );
+      });
+    });
   }
 
   async enqueue(invitationId: string, version: number): Promise<boolean> {
     let deadline: ReturnType<typeof setTimeout> | undefined;
+    let stage: 'queue-acknowledgement' | 'database-mark-queued' =
+      'queue-acknowledgement';
     try {
       const queued = this.queue.add(
         EmailJobNames.SEND_INVITATION_EMAIL,
@@ -48,6 +49,7 @@ export class InvitationEmailService {
           );
         }),
       ]);
+      stage = 'database-mark-queued';
       await this.prisma.organizationInvitation.updateMany({
         where: {
           id: invitationId,
@@ -58,12 +60,11 @@ export class InvitationEmailService {
       });
       return true;
     } catch {
-      this.logger.warn({
-        message:
-          'Invitation email enqueue unavailable; resend or copy link remains available',
+      this.logging.application({
         event: 'invitation.enqueue_unavailable',
         invitationId,
         version,
+        stage,
         queue: INVITATION_EMAIL_QUEUE,
       });
       return false;

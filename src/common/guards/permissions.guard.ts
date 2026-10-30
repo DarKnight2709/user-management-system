@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { isUUID } from 'class-validator';
+import type { Request } from 'express';
+import { randomUUID } from 'node:crypto';
 import {
   PLATFORM_PERMISSIONS_KEY,
   type PlatformPermission,
@@ -18,6 +20,9 @@ import {
 } from '../decorators/require-organization-permissions.decorator.js';
 
 import { PermissionsService } from '@/common/services/permissions.service.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import type { AuthorizationDeniedEventInput } from '@/modules/logging/types/security-event.types.js';
+import { requestContext } from '@/core/logging/request-context.js';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -25,6 +30,8 @@ export class PermissionsGuard implements CanActivate {
     private readonly reflector: Reflector,
 
     private readonly permissionsService: PermissionsService,
+
+    private readonly logging: LoggingService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -48,7 +55,7 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    const request = context.switchToHttp().getRequest<{
+    const request = context.switchToHttp().getRequest<Request & {
       user?: { id?: unknown };
     }>();
     const userId = request.user?.id;
@@ -61,6 +68,19 @@ export class PermissionsGuard implements CanActivate {
       required,
     );
     if (!allowed) {
+      this.logAuthorizationDenial(
+        {
+          action: 'authorization.denied',
+          actor: { type: 'USER', id: userId },
+          scope: 'PLATFORM',
+          reasonCode: 'INSUFFICIENT_PLATFORM_PERMISSION',
+          requiredPermissions: required.map(({ resource, action }) => ({
+            resource,
+            action,
+          })),
+        },
+        request,
+      );
       throw new ForbiddenException('Insufficient platform permissions');
     }
   }
@@ -81,7 +101,7 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    const request = context.switchToHttp().getRequest<{
+    const request = context.switchToHttp().getRequest<Request & {
       user?: { id?: unknown };
       params?: Record<string, unknown>;
     }>();
@@ -103,9 +123,45 @@ export class PermissionsGuard implements CanActivate {
       required,
     );
     if (!allowed) {
+      this.logAuthorizationDenial(
+        {
+          action: 'authorization.denied',
+          actor: { type: 'USER', id: userId },
+          scope: 'ORGANIZATION',
+          organizationId,
+          reasonCode:
+            'INSUFFICIENT_ORGANIZATION_PERMISSION_OR_MEMBERSHIP',
+          requiredPermissions: required.map(({ resource, action }) => ({
+            resource,
+            action,
+          })),
+        },
+        request,
+      );
       throw new ForbiddenException(
         'Insufficient organization permissions or membership',
       );
     }
+  }
+
+  private logAuthorizationDenial(
+    event: Omit<
+      Extract<AuthorizationDeniedEventInput, { scope: 'PLATFORM' }>,
+      'requestContext'
+    >
+      | Omit<
+          Extract<AuthorizationDeniedEventInput, { scope: 'ORGANIZATION' }>,
+          'requestContext'
+        >,
+    request: Request,
+  ): void {
+    this.logging.security({
+      ...event,
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: request.ip,
+        userAgent: request.get('user-agent'),
+      },
+    });
   }
 }

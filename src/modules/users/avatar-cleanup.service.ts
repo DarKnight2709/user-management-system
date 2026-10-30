@@ -1,17 +1,13 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { S3Service } from '@/core/storage/s3.service.js';
 import { Prisma } from '@/generated/prisma/client.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import type { BackgroundErrorCategory } from '@/modules/logging/types/application-event.types.js';
 
 @Injectable()
 export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(AvatarCleanupService.name);
   private timer?: ReturnType<typeof setInterval>;
   private running = false;
   private stopped = false;
@@ -19,6 +15,7 @@ export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: S3Service,
+    private readonly logging: LoggingService,
   ) {}
 
   onModuleInit(): void {
@@ -37,14 +34,10 @@ export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
     if (this.running || this.stopped) return;
     this.running = true;
     this.activeRun = this.processBatch().catch((error: unknown) => {
-      this.logger.error(
-        {
-          message: 'Avatar cleanup worker failed',
-          event: 'avatar_cleanup_worker_failed',
-          errorCategory: this.getErrorCategory(error),
-        },
-        undefined,
-      );
+      this.logging.application({
+        event: 'avatar.cleanup_worker_failed',
+        errorCategory: this.getErrorCategory(error),
+      });
     });
     try {
       await this.activeRun;
@@ -105,34 +98,28 @@ export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
             },
           });
         } catch (schedulingError) {
-          this.logger.error(
-            {
-              message: 'Avatar cleanup retry scheduling failed',
-              event: 'avatar_cleanup_retry_scheduling_failed',
-              taskId: task.id,
-              attempt: task.attempts + 1,
-              errorCategory: this.getErrorCategory(error),
-              schedulingErrorCategory: this.getErrorCategory(schedulingError),
-            },
-            undefined,
-          );
+          this.logging.application({
+            event: 'avatar.cleanup_retry_scheduling_failed',
+            taskId: task.id,
+            attempt: task.attempts + 1,
+            errorCategory: this.getErrorCategory(error),
+            schedulingErrorCategory: this.getErrorCategory(schedulingError),
+          });
           throw schedulingError;
         }
         if (scheduled.count !== 1) continue;
-        this.logger.warn({
-          message: 'Avatar cleanup retry scheduled',
-          event: 'avatar_cleanup_retry_scheduled',
+        this.logging.application({
+          event: 'avatar.cleanup_retry_scheduled',
           taskId: task.id,
           attempt: task.attempts + 1,
           errorCategory: this.getErrorCategory(error),
           retryDelayMs: delayMs,
-          nextAttemptAt: nextAttemptAt.toISOString(),
         });
       }
     }
   }
 
-  private getErrorCategory(error: unknown): string {
+  private getErrorCategory(error: unknown): BackgroundErrorCategory {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError ||
       error instanceof Prisma.PrismaClientUnknownRequestError ||

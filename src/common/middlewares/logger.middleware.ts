@@ -1,12 +1,13 @@
-import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
+import { Injectable, NestMiddleware } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { NextFunction, Request, Response } from 'express';
 import { requestContext } from '@/core/logging/request-context.js';
 import { performance } from 'node:perf_hooks';
+import { LoggingService } from '@/modules/logging/logging.service.js';
 
 @Injectable()
 export class LoggerMiddleware implements NestMiddleware {
-  private readonly logger = new Logger(LoggerMiddleware.name);
+  constructor(private readonly logging: LoggingService) {}
 
   use(req: Request, res: Response, next: NextFunction) {
     const requestId = randomUUID();
@@ -28,23 +29,26 @@ export class LoggerMiddleware implements NestMiddleware {
       const duration = Math.round(performance.now() - start);
 
       const logData = {
-        message: aborted ? 'HTTP request aborted' : 'HTTP request completed',
-        requestId,
+        requestContext: { requestId },
         method: req.method,
         route:
           typeof req.route?.path === 'string' ? req.route.path : '[unmatched]', // /users/:id
-        statusCode: aborted ? null : statusCode,
         durationMs: duration,
-        outcome: aborted ? 'aborted' : 'completed',
       };
       if (aborted) {
-        this.logger.warn(logData);
-      } else if (res.statusCode >= 500) {
-        this.logger.error(logData, undefined);
-      } else if (res.statusCode >= 400) {
-        this.logger.warn(logData);
+        this.logging.application({
+          ...logData,
+          event: 'http.request.aborted',
+          statusCode: null,
+          outcome: 'aborted',
+        });
       } else {
-        this.logger.log(logData);
+        this.logging.application({
+          ...logData,
+          event: 'http.request.completed',
+          statusCode,
+          outcome: 'completed',
+        });
       }
     };
     const onFinish = () => logCompletion(false);

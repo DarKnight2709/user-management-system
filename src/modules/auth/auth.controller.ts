@@ -44,8 +44,12 @@ export class AuthController {
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: RegisterDto })
-  async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  async register(@Body() dto: RegisterDto, @Req() request: Request) {
+    return this.authService.register(
+      dto,
+      request.ip,
+      request.get('user-agent'),
+    );
   }
 
   @IpRateLimit(10)
@@ -57,8 +61,14 @@ export class AuthController {
   async changePassword(
     @CurrentUser('id') userId: string,
     @Body() dto: ChangePasswordDto,
+    @Req() request: Request,
   ): Promise<void> {
-    await this.authService.changePassword(userId, dto);
+    await this.authService.changePassword(
+      userId,
+      dto,
+      request.ip,
+      request.get('user-agent'),
+    );
   }
 
   @Post('logout')
@@ -67,16 +77,29 @@ export class AuthController {
   async logout(
     @CurrentUser('id') userId: string,
     @Body() dto: RefreshTokenDto,
+    @Req() request: Request,
   ): Promise<void> {
-    await this.authService.logout(dto.refreshToken, userId);
+    await this.authService.logout(
+      dto.refreshToken,
+      userId,
+      request.ip,
+      request.get('user-agent'),
+    );
   }
 
   @Post('logout-all')
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Revoke all refresh tokens for the current user' })
-  async logoutAll(@CurrentUser() user: RequestUser): Promise<void> {
-    await this.authService.logoutAll(user.id);
+  async logoutAll(
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ): Promise<void> {
+    await this.authService.logoutAll(
+      user.id,
+      request.ip,
+      request.get('user-agent'),
+    );
   }
 
   @Get('me')

@@ -1,3 +1,9 @@
+export const organizationAuditPermission = {
+  resource: 'ORGANIZATION_AUDIT_LOG',
+  action: 'read',
+  description: 'View audit history for this organization',
+} as const;
+
 export const organizationPermissions = [
   {
     resource: 'ORGANIZATION',
@@ -54,4 +60,5 @@ export const organizationPermissions = [
     action: 'revoke',
     description: 'Revoke organization roles from members',
   },
+  organizationAuditPermission,
 ] as const;

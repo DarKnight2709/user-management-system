@@ -1,0 +1,349 @@
+import Joi from 'joi';
+import type { AuditEventInput } from '../types/audit-event.types.js';
+
+const idSchema = Joi.string().uuid().required();
+
+const organizationMemberRoleAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('ORGANIZATION_MEMBER').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema,
+  payload: Joi.object({
+    memberUserId: idSchema,
+    roleId: idSchema,
+    // Matches CreateOrganizationRoleDto: uppercase letters, digits, underscores.
+    roleName: Joi.string()
+      .pattern(/^[A-Z][A-Z0-9_]{0,49}$/)
+      .required(),
+  }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const roleNameSchema = Joi.string()
+  .pattern(/^[A-Z][A-Z0-9_]{0,49}$/)
+  .required();
+
+const rolePermissionsSchema = Joi.array()
+  .items(
+    Joi.object({
+      id: idSchema,
+      resource: Joi.string()
+        .pattern(/^[A-Z][A-Z0-9_]{0,63}$/)
+        .required(),
+      action: Joi.string()
+        .pattern(/^[a-z][a-z0-9-]{0,63}$/)
+        .required(),
+    }).required(),
+  )
+  .max(64)
+  .unique('id')
+  .required();
+
+const organizationRoleSnapshotSchema = Joi.object({
+  name: roleNameSchema,
+  permissions: rolePermissionsSchema,
+}).required();
+
+const organizationRoleAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('ROLE').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema,
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const organizationAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('ORGANIZATION').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema,
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const organizationMemberAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('ORGANIZATION_MEMBER').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema,
+  payload: Joi.object({ memberUserId: idSchema }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const organizationInvitationAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('ORGANIZATION_INVITATION').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema,
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const userAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const userRegistrationAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('ANONYMOUS').required(),
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const auditLogAccessEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('AUDIT_LOG').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema.optional(),
+  payload: Joi.object({
+    scope: Joi.string().valid('PLATFORM', 'ORGANIZATION').required(),
+    page: Joi.number().integer().min(1).max(1_000_000).required(),
+    limit: Joi.number().integer().min(1).max(100).required(),
+    actionFilter: Joi.string().max(128).optional(),
+    actorIdFilter: idSchema.optional(),
+    targetIdFilter: idSchema.optional(),
+    targetTypeFilter: Joi.string()
+      .valid(
+        'USER',
+        'ORGANIZATION',
+        'ORGANIZATION_MEMBER',
+        'ROLE',
+        'ORGANIZATION_INVITATION',
+        'AUDIT_LOG',
+      )
+      .optional(),
+    organizationFilter: idSchema.optional(),
+  }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const organizationNameSchema = Joi.string().min(1).max(100).required();
+const organizationSlugSchema = Joi.string()
+  .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+  .min(3)
+  .max(63)
+  .required();
+
+export const auditEventSchema = Joi.alternatives<AuditEventInput>()
+  .try(
+    auditLogAccessEventSchema.keys({
+      action: Joi.string().valid('audit.log.viewed').required(),
+    }),
+    userRegistrationAuditEventSchema.keys({
+      action: Joi.string().valid('user.registered').required(),
+      payload: Joi.object({
+        registrationMethod: Joi.string().valid('PASSWORD').required(),
+      }).required(),
+    }),
+    userAuditEventSchema.keys({
+      action: Joi.string().valid('user.profile.updated').required(),
+      payload: Joi.object({
+        changedFields: Joi.array()
+          .items(
+            Joi.string().valid(
+              'username',
+              'email',
+              'firstName',
+              'lastName',
+              'birthDate',
+            ),
+          )
+          .min(1)
+          .unique()
+          .required(),
+      }).required(),
+    }),
+    userAuditEventSchema.keys({
+      action: Joi.string().valid('user.deleted').required(),
+      payload: Joi.object({
+        selfDeletion: Joi.boolean().required(),
+        revokedRefreshTokenCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
+      }).required(),
+    }),
+    userAuditEventSchema.keys({
+      action: Joi.string().valid('user.password.changed').required(),
+      payload: Joi.object({
+        revokedRefreshTokenCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
+      }).required(),
+    }),
+    userAuditEventSchema.keys({
+      action: Joi.string().valid('user.avatar.updated').required(),
+      payload: Joi.object({
+        change: Joi.string().valid('ADDED', 'REPLACED').required(),
+      }).required(),
+    }),
+    organizationMemberRoleAuditEventSchema.keys({
+      action: Joi.string()
+        .valid('organization.member_role.assigned')
+        .required(),
+    }),
+    organizationMemberRoleAuditEventSchema.keys({
+      action: Joi.string().valid('organization.member_role.revoked').required(),
+    }),
+    organizationRoleAuditEventSchema.keys({
+      action: Joi.string().valid('organization.role.created').required(),
+      payload: organizationRoleSnapshotSchema,
+    }),
+    organizationRoleAuditEventSchema.keys({
+      action: Joi.string().valid('organization.role.updated').required(),
+      payload: Joi.object({
+        before: organizationRoleSnapshotSchema,
+        after: organizationRoleSnapshotSchema,
+      }).required(),
+    }),
+    organizationRoleAuditEventSchema.keys({
+      action: Joi.string().valid('organization.role.deleted').required(),
+      payload: organizationRoleSnapshotSchema,
+    }),
+    organizationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.created').required(),
+      payload: Joi.object({
+        name: organizationNameSchema,
+        slug: organizationSlugSchema,
+        ownerId: idSchema,
+      }).required(),
+    }),
+    organizationMemberAuditEventSchema.keys({
+      action: Joi.string().valid('organization.member.removed').required(),
+    }),
+    organizationMemberAuditEventSchema.keys({
+      action: Joi.string().valid('organization.member.left').required(),
+    }),
+    organizationInvitationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.invitation.created').required(),
+      payload: Joi.object({
+        expiresAt: Joi.string().isoDate().required(),
+        expiredInvitationCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
+        revokedStaleInvitationCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
+      }).required(),
+    }),
+    organizationInvitationAuditEventSchema.keys({
+      action: Joi.string()
+        .valid('organization.invitation.resend_requested')
+        .required(),
+      payload: Joi.object({
+        deliveryVersion: Joi.number().integer().min(1).required(),
+        resendCount: Joi.number().integer().min(0).required(),
+      }).required(),
+    }),
+    organizationInvitationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.invitation.revoked').required(),
+      payload: Joi.object({
+        deliveryVersion: Joi.number().integer().min(1).required(),
+      }).required(),
+    }),
+    organizationInvitationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.invitation.accepted').required(),
+      payload: Joi.object({
+        membershipId: idSchema,
+        membershipReactivated: Joi.boolean().required(),
+        previousRoleIds: Joi.array()
+          .items(idSchema)
+          .max(64)
+          .unique()
+          .required(),
+        memberRoleId: idSchema,
+      }).required(),
+    }),
+    organizationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.updated').required(),
+      payload: Joi.object({
+        before: Joi.object({ name: organizationNameSchema }).required(),
+        after: Joi.object({ name: organizationNameSchema }).required(),
+      }).required(),
+    }),
+    organizationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.deleted').required(),
+      payload: Joi.object({
+        name: organizationNameSchema,
+        slug: organizationSlugSchema,
+        ownerId: idSchema,
+        revokedPendingInvitationCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
+      }).required(),
+    }),
+    organizationAuditEventSchema.keys({
+      action: Joi.string()
+        .valid('organization.ownership.transferred')
+        .required(),
+      payload: Joi.object({
+        previousOwnerId: idSchema,
+        newOwnerId: idSchema,
+        previousOwnerMembershipId: idSchema,
+      }).required(),
+    }),
+  )
+  .required()
+  .prefs({
+    convert: false,
+    abortEarly: true,
+    stripUnknown: { objects: true },
+  });
+
+export function parseAuditEvent(input: unknown): AuditEventInput {
+  const { error, value } = auditEventSchema.validate(input);
+  if (error) {
+    // Validation errors may contain event values; never forward them to logs.
+    throw new Error('Invalid audit event');
+  }
+  return value;
+}

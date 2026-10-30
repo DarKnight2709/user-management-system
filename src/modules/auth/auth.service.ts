@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service.js';
@@ -14,6 +13,8 @@ import type { Prisma } from '@/generated/prisma/client.js';
 import jwt from 'jsonwebtoken';
 import { RegisterDto } from './dto/auth.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { LoggingService } from '../logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
 
 export interface JwtRefreshTokenPayload {
   sub: string;
@@ -24,21 +25,21 @@ export interface JwtRefreshTokenPayload {
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
   constructor(
     private readonly userService: UsersService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly loggingService: LoggingService,
   ) {}
-  async validateUser(email: string, password: string) {
-    const failureLog = {
-      message: 'Login failed',
-      event: 'auth.login_failed',
-      reason: 'invalid_credentials',
-    };
+  async validateUser(
+    email: string,
+    password: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     const user = await this.userService.findOneByEmail(email);
     if (!user) {
-      this.logger.warn(failureLog);
+      this.logLoginFailure(ipAddress, userAgent);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -49,7 +50,7 @@ export class AuthService {
     );
 
     if (!isValidPassword) {
-      this.logger.warn(failureLog);
+      this.logLoginFailure(ipAddress, userAgent);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -61,6 +62,8 @@ export class AuthService {
   }
 
   async login(user: RequestUser, ipAddress?: string, userAgent?: string) {
+    const familyId = randomUUID();
+    const requestId = requestContext.getStore()?.requestId ?? randomUUID();
     const accessToken = this.generateAccessToken(user);
     const refreshToken = await this.prisma.serializableTransaction(
       async (manager) => {
@@ -73,25 +76,36 @@ export class AuthService {
           ipAddress,
           userAgent,
           manager,
+          familyId,
         );
       },
     );
-    this.logger.log({
-      message: 'Login succeeded',
-      event: 'auth.login_succeeded',
-      userId: user.id,
+
+    this.loggingService.security({
+      action: 'auth.login.succeeded',
+      actor: {
+        type: 'USER',
+        id: user.id,
+      },
+      authMethod: 'PASSWORD',
+      sessionRef: familyId,
+      requestContext: {
+        requestId,
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
     return { accessToken, refreshToken };
   }
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, ipAddress?: string, userAgent?: string) {
     // Hash password
     const hashedPassword = await hash(dto.password);
     const emailInput = dto.email.trim().toLowerCase();
     const usernameInput = dto.username.trim().toLowerCase();
 
     // Create user
-    await this.userService.create({
+    const user = await this.userService.create({
       username: usernameInput,
       hashedPassword,
       firstName: dto.firstName,
@@ -99,9 +113,25 @@ export class AuthService {
       birthDate: dto.birthDate,
       email: emailInput,
     });
+
+    this.loggingService.security({
+      action: 'auth.registration.succeeded',
+      actor: { type: 'ANONYMOUS' },
+      target: { type: 'USER', id: user.id },
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: ipAddress,
+        userAgent,
+      },
+    });
   }
 
-  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId, deletedAt: null },
       select: { hashedPassword: true },
@@ -115,6 +145,16 @@ export class AuthService {
       user.hashedPassword,
     );
     if (!isCurrentPasswordValid) {
+      this.loggingService.security({
+        action: 'auth.password.change_failed',
+        actor: { type: 'USER', id: userId },
+        reasonCode: 'INVALID_CURRENT_PASSWORD',
+        requestContext: {
+          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          sourceIp: ipAddress,
+          userAgent,
+        },
+      });
       throw new UnauthorizedException('Invalid current password');
     }
 
@@ -126,30 +166,50 @@ export class AuthService {
     }
 
     const hashedPassword = await hash(dto.newPassword);
-    await this.prisma.serializableTransaction(async (manager) => {
-      const updated = await manager.user.updateMany({
-        where: {
-          id: userId,
-          deletedAt: null,
-          hashedPassword: user.hashedPassword,
-        },
-        data: { hashedPassword },
-      });
-      if (updated.count !== 1) {
-        throw new UnauthorizedException(
-          'Account or password changed; authenticate again',
-        );
-      }
-      await manager.refreshToken.updateMany({
-        where: { userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-    });
+    const auditEvent = await this.prisma.serializableTransaction(
+      async (manager) => {
+        const updated = await manager.user.updateMany({
+          where: {
+            id: userId,
+            deletedAt: null,
+            hashedPassword: user.hashedPassword,
+          },
+          data: { hashedPassword },
+        });
+        if (updated.count !== 1) {
+          throw new UnauthorizedException(
+            'Account or password changed; authenticate again',
+          );
+        }
+        const revoked = await manager.refreshToken.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
 
-    this.logger.log({
-      message: 'Password changed',
-      event: 'auth.password_changed',
-      userId,
+        return this.loggingService.audit(
+          {
+            action: 'user.password.changed',
+            actor: { type: 'USER', id: userId },
+            target: { type: 'USER', id: userId },
+            payload: { revokedRefreshTokenCount: revoked.count },
+            requestContext: {
+              requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            },
+          },
+          manager,
+        );
+      },
+    );
+
+    this.loggingService.publishCommittedAudit(auditEvent);
+    this.loggingService.security({
+      action: 'auth.password.changed',
+      actor: { type: 'USER', id: userId },
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
   }
 
@@ -190,7 +250,11 @@ export class AuthService {
               where: { familyId: tokenEntity.familyId, revokedAt: null },
               data: { revokedAt: new Date() },
             });
-            return null;
+            return {
+              kind: 'reuse' as const,
+              userId: tokenEntity.userId,
+              sessionRef: tokenEntity.familyId,
+            };
           }
 
           // Check token validity
@@ -224,21 +288,31 @@ export class AuthService {
           );
 
           return {
+            kind: 'rotated' as const,
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
           };
         },
       );
 
-      if (!result) {
-        this.logger.warn({
-          message: 'Refresh token reuse detected',
-          event: 'auth.refresh_token_reuse_detected',
-          userId: payload.sub,
+      if (result.kind === 'reuse') {
+        this.loggingService.security({
+          action: 'auth.refresh_token.reuse_detected',
+          actor: { type: 'ANONYMOUS' },
+          target: { type: 'USER', id: result.userId },
+          sessionRef: result.sessionRef,
+          requestContext: {
+            requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            sourceIp: ipAddress,
+            userAgent,
+          },
         });
         throw new UnauthorizedException('Refresh token reuse detected');
       }
-      return result;
+      return {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+      };
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {
         throw new UnauthorizedException('Refresh token expired');
@@ -250,17 +324,23 @@ export class AuthService {
         throw error;
       }
 
-      this.logger.error(
-        {
-          message: 'Refresh token processing failed',
-          event: 'auth.refresh_failed',
+      this.loggingService.application({
+        event: 'auth.refresh_failed',
+        requestContext: {
+          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          sourceIp: ipAddress,
+          userAgent,
         },
-        undefined,
-      );
+      });
       throw error;
     }
   }
-  async logout(refreshToken: string, userId: string): Promise<void> {
+  async logout(
+    refreshToken: string,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
     if (!refreshToken) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -272,33 +352,62 @@ export class AuthService {
     if (payload.sub !== userId) {
       throw new UnauthorizedException('Invalid refresh token');
     }
-    await this.prisma.serializableTransaction(async (manager) => {
-      const token = await manager.refreshToken.findUnique({
-        where: { id: payload.jti },
-      });
-      if (!token) return;
-      if (
-        token.userId !== userId ||
-        token.userId !== payload.sub ||
-        token.refreshTokenHash !== this.hashToken(refreshToken)
-      ) {
-        throw new UnauthorizedException('Invalid refresh token');
+    let sessionRef: string | undefined;
+    try {
+      sessionRef = await this.prisma.serializableTransaction(
+        async (manager) => {
+          const token = await manager.refreshToken.findUnique({
+            where: { id: payload.jti },
+          });
+          if (!token) return undefined;
+          if (
+            token.userId !== userId ||
+            token.userId !== payload.sub ||
+            token.refreshTokenHash !== this.hashToken(refreshToken)
+          ) {
+            throw new UnauthorizedException('Invalid refresh token');
+          }
+          await manager.refreshToken.updateMany({
+            where: { familyId: token.familyId, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+          return token.familyId;
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof UnauthorizedException)) {
+        this.loggingService.application({
+          event: 'auth.logout_session_failed',
+          userId,
+          scope: 'session_family',
+          requestContext: {
+            requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            sourceIp: ipAddress,
+            userAgent,
+          },
+        });
       }
-      await manager.refreshToken.updateMany({
-        where: { familyId: token.familyId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-    });
+      throw error;
+    }
 
-    this.logger.log({
-      message: 'Logout completed',
-      event: 'auth.logout_completed',
-      userId,
-      scope: 'session_family',
+    this.loggingService.security({
+      action: 'auth.logout.completed',
+      actor: { type: 'USER', id: userId },
+      scope: 'SESSION_FAMILY',
+      sessionRef,
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
   }
 
-  async logoutAll(userId: string): Promise<void> {
+  async logoutAll(
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
     if (!userId) {
       throw new UnauthorizedException('Invalid user ID');
     }
@@ -314,23 +423,28 @@ export class AuthService {
         }),
       );
     } catch (error) {
-      this.logger.error(
-        {
-          message: 'Logout failed',
-          event: 'auth.logout_failed',
-          userId,
-          scope: 'all_sessions',
+      this.loggingService.application({
+        event: 'auth.logout_failed',
+        userId,
+        scope: 'all_sessions',
+        requestContext: {
+          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          sourceIp: ipAddress,
+          userAgent,
         },
-        undefined,
-      );
+      });
       throw error;
     }
 
-    this.logger.log({
-      message: 'Logout completed',
-      event: 'auth.logout_completed',
-      userId,
-      scope: 'all_sessions',
+    this.loggingService.security({
+      action: 'auth.logout.completed',
+      actor: { type: 'USER', id: userId },
+      scope: 'ALL_SESSIONS',
+      requestContext: {
+        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
   }
 
@@ -445,5 +559,21 @@ export class AuthService {
         ),
       },
     );
+  }
+
+  private logLoginFailure(ipAddress?: string, userAgent?: string): void {
+    const requestId = requestContext.getStore()?.requestId ?? randomUUID();
+
+    this.loggingService.security({
+      action: 'auth.login.failed',
+      actor: { type: 'ANONYMOUS' },
+      authMethod: 'PASSWORD',
+      reasonCode: 'INVALID_CREDENTIALS',
+      requestContext: {
+        requestId,
+        sourceIp: ipAddress,
+        userAgent,
+      },
+    });
   }
 }
