@@ -10,6 +10,24 @@ type AnonymousUserRegistrationAuditEvent = {
   requestContext: AuditRequestContext;
 };
 
+type AuditLogAccessEvent = {
+  action: 'audit.log.viewed';
+  actor: { type: 'USER'; id: string };
+  target: { type: 'AUDIT_LOG'; id: string };
+  organizationId?: string;
+  payload: {
+    scope: 'PLATFORM' | 'ORGANIZATION';
+    page: number;
+    limit: number;
+    actionFilter?: string;
+    actorIdFilter?: string;
+    targetIdFilter?: string;
+    targetTypeFilter?: string;
+    organizationFilter?: string;
+  };
+  requestContext: AuditRequestContext;
+};
+
 type UserAuditEvent = {
   actor: UserAuditActor;
   target: { type: 'USER'; id: string };
@@ -97,6 +115,7 @@ type OrganizationInvitationAuditEvent = {
 };
 
 export type AuditEventInput =
+  | AuditLogAccessEvent
   | (AnonymousUserRegistrationAuditEvent & {
       action: 'user.registered';
       payload: { registrationMethod: 'PASSWORD' };

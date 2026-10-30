@@ -47,6 +47,7 @@ enum AuditTargetType {
   ORGANIZATION_MEMBER
   ROLE
   ORGANIZATION_INVITATION
+  AUDIT_LOG
 }
 
 model User {

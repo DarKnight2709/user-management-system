@@ -60,6 +60,6 @@ export async function seedOrganizationPermissions(
     }
   });
   console.log(
-    'Organization permission catalog seeded; audit-read access granted to existing ADMIN roles.',
+    'Organization permission catalog seeded; existing ADMIN audit grants ensured (revocations preserved).',
   );
 }

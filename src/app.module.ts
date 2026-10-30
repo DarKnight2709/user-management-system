@@ -25,6 +25,7 @@ import * as winston from 'winston';
 import { requestContext } from './core/logging/request-context.js';
 import { redactSensitiveData } from './core/logging/redact-log.format.js';
 import { classifyUncataloguedLogs } from './core/logging/classify-uncatalogued-log.format.js';
+import { AuditModule } from './modules/audit/audit.module.js';
 @Module({
   imports: [
     BullModule.forRootAsync({
@@ -96,6 +97,7 @@ import { classifyUncataloguedLogs } from './core/logging/classify-uncatalogued-l
     AuthModule,
     HealthModule,
     OrganizationsModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [

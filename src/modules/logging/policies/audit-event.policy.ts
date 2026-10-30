@@ -15,7 +15,7 @@ type AuditEventPolicy = {
   outcome: 'SUCCESS';
   level: 'info';
 
-  emitWhen: 'business-change-committed';
+  emitWhen: 'business-change-committed' | 'sensitive-audit-data-read';
 
   // Lỗi ghi bản chính phải làm transaction thất bại.
   onPersistenceFailure: 'rollback';
@@ -25,6 +25,19 @@ type AuditEventPolicy = {
 };
 
 export const AUDIT_POLICIES = {
+  'audit.log.viewed': {
+    schemaVersion: 1,
+    category: 'audit',
+    persistToPostgres: true,
+    transaction: 'required',
+    output: 'winston-console',
+    publishCopy: 'after-commit',
+    outcome: 'SUCCESS',
+    level: 'info',
+    emitWhen: 'sensitive-audit-data-read',
+    onPersistenceFailure: 'rollback',
+    onLoggingFailure: 'preserve-business-result',
+  },
   'user.registered': {
     schemaVersion: 1,
     category: 'audit',

@@ -125,6 +125,38 @@ const userRegistrationAuditEventSchema = Joi.object({
   requestContext: Joi.object({ requestId: idSchema }).required(),
 });
 
+const auditLogAccessEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('AUDIT_LOG').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema.optional(),
+  payload: Joi.object({
+    scope: Joi.string().valid('PLATFORM', 'ORGANIZATION').required(),
+    page: Joi.number().integer().min(1).max(1_000_000).required(),
+    limit: Joi.number().integer().min(1).max(100).required(),
+    actionFilter: Joi.string().max(128).optional(),
+    actorIdFilter: idSchema.optional(),
+    targetIdFilter: idSchema.optional(),
+    targetTypeFilter: Joi.string()
+      .valid(
+        'USER',
+        'ORGANIZATION',
+        'ORGANIZATION_MEMBER',
+        'ROLE',
+        'ORGANIZATION_INVITATION',
+        'AUDIT_LOG',
+      )
+      .optional(),
+    organizationFilter: idSchema.optional(),
+  }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
 const organizationNameSchema = Joi.string().min(1).max(100).required();
 const organizationSlugSchema = Joi.string()
   .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
@@ -134,6 +166,9 @@ const organizationSlugSchema = Joi.string()
 
 export const auditEventSchema = Joi.alternatives<AuditEventInput>()
   .try(
+    auditLogAccessEventSchema.keys({
+      action: Joi.string().valid('audit.log.viewed').required(),
+    }),
     userRegistrationAuditEventSchema.keys({
       action: Joi.string().valid('user.registered').required(),
       payload: Joi.object({
