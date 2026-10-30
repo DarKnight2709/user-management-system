@@ -31,10 +31,15 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly loggingService: LoggingService,
   ) {}
-  async validateUser(email: string, password: string) {
+  async validateUser(
+    email: string,
+    password: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     const user = await this.userService.findOneByEmail(email);
     if (!user) {
-      this.logLoginFailure();
+      this.logLoginFailure(ipAddress, userAgent);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -45,7 +50,7 @@ export class AuthService {
     );
 
     if (!isValidPassword) {
-      this.logLoginFailure();
+      this.logLoginFailure(ipAddress, userAgent);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -186,6 +191,8 @@ export class AuthService {
       actor: { type: 'USER', id: userId },
       requestContext: {
         requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        sourceIp: ipAddress,
+        userAgent,
       },
     });
   }
@@ -532,7 +539,7 @@ export class AuthService {
     );
   }
 
-  private logLoginFailure(): void {
+  private logLoginFailure(ipAddress?: string, userAgent?: string): void {
     const requestId = requestContext.getStore()?.requestId ?? randomUUID();
 
     this.loggingService.security({
@@ -540,7 +547,11 @@ export class AuthService {
       actor: { type: 'ANONYMOUS' },
       authMethod: 'PASSWORD',
       reasonCode: 'INVALID_CREDENTIALS',
-      requestContext: { requestId },
+      requestContext: {
+        requestId,
+        sourceIp: ipAddress,
+        userAgent,
+      },
     });
   }
 }
