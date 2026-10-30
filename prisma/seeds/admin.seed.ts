@@ -59,6 +59,11 @@ const platformPermissions = [
     action: 'delete',
     description: 'Delete organizations across the application',
   },
+  {
+    resource: 'AUDIT_LOG',
+    action: 'read',
+    description: 'Read audit history across the application',
+  },
 ];
 
 export async function seedAdmin(prisma: PrismaClient): Promise<void> {

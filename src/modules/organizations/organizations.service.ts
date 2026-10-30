@@ -36,6 +36,7 @@ const adminPermissions = [
   { resource: 'ORGANIZATION_MEMBER', action: 'invite' },
   { resource: 'ORGANIZATION_MEMBER', action: 'remove' },
   { resource: 'ORGANIZATION_ROLE', action: 'read' },
+  { resource: 'ORGANIZATION_AUDIT_LOG', action: 'read' },
 ];
 
 @Injectable()
@@ -296,7 +297,9 @@ export class OrganizationsService {
                 create: permissions
                   .filter(
                     (permission) =>
-                      name === 'ADMIN' || permission.action === 'read',
+                      name === 'ADMIN' ||
+                      (permission.action === 'read' &&
+                        permission.resource !== 'ORGANIZATION_AUDIT_LOG'),
                   )
                   .map((permission) => ({ permissionId: permission.id })),
               },

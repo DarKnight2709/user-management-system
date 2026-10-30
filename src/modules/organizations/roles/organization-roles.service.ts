@@ -49,6 +49,16 @@ const isCatalogPermission = (permission: {
       entry.action === permission.action,
   );
 
+const isAssignablePermission = (permission: {
+  resource: string;
+  action: string;
+}) =>
+  isCatalogPermission(permission) &&
+  !(
+    permission.resource === 'ORGANIZATION_AUDIT_LOG' &&
+    permission.action === 'read'
+  );
+
 const auditPermissions = (permissions: RolePermission[]) =>
   permissions.map(({ id, resource, action }) => ({ id, resource, action }));
 
@@ -381,7 +391,9 @@ export class OrganizationRolesService {
         );
       return manager.permission.findMany({
         where: {
-          id: { in: grantable.map(({ id }) => id) },
+          id: {
+            in: grantable.filter(isAssignablePermission).map(({ id }) => id),
+          },
           deletedAt: null,
           OR: catalogFilter,
         },
@@ -476,7 +488,7 @@ export class OrganizationRolesService {
         permissions,
         manager,
       ));
-    if (!permissions.every(isCatalogPermission) || !withinAuthority) {
+    if (!permissions.every(isAssignablePermission) || !withinAuthority) {
       throw new ForbiddenException(
         'Cannot manage a role beyond your organization authority',
       );
@@ -499,7 +511,10 @@ export class OrganizationRolesService {
       select: permissionDetails,
     });
 
-    if (permissions.length !== permissionIds.length) {
+    if (
+      permissions.length !== permissionIds.length ||
+      !permissions.every(isAssignablePermission)
+    ) {
       throw new UnprocessableEntityException(
         'Permissions must be active organization catalog entries',
       );
