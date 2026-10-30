@@ -42,6 +42,19 @@ type OrganizationRoleAuditEvent = {
   requestContext: AuditRequestContext;
 };
 
+type OrganizationAuditEvent = {
+  actor: {
+    type: 'USER';
+    id: string;
+  };
+  target: {
+    type: 'ORGANIZATION';
+    id: string;
+  };
+  organizationId: string;
+  requestContext: AuditRequestContext;
+};
+
 export type AuditEventInput =
   | (OrganizationMemberRoleAuditEvent & {
       action: 'organization.member_role.assigned';
@@ -58,6 +71,31 @@ export type AuditEventInput =
       payload: {
         before: OrganizationRoleSnapshot;
         after: OrganizationRoleSnapshot;
+      };
+    })
+  | (OrganizationAuditEvent & {
+      action: 'organization.created';
+      payload: { name: string; slug: string; ownerId: string };
+    })
+  | (OrganizationAuditEvent & {
+      action: 'organization.updated';
+      payload: { before: { name: string }; after: { name: string } };
+    })
+  | (OrganizationAuditEvent & {
+      action: 'organization.deleted';
+      payload: {
+        name: string;
+        slug: string;
+        ownerId: string;
+        revokedPendingInvitationCount: number;
+      };
+    })
+  | (OrganizationAuditEvent & {
+      action: 'organization.ownership.transferred';
+      payload: {
+        previousOwnerId: string;
+        newOwnerId: string;
+        previousOwnerMembershipId: string;
       };
     });
 

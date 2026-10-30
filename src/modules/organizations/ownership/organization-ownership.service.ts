@@ -8,52 +8,87 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
+import { randomUUID } from 'node:crypto';
+
+const currentRequestId = () =>
+  requestContext.getStore()?.requestId ?? randomUUID();
 
 @Injectable()
 export class OrganizationOwnershipService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly logging: LoggingService,
+  ) {}
 
   async transferForActor(
     actorId: string,
     organizationId: string,
     memberId: string,
   ) {
-    return this.prisma.serializableTransaction(async (manager) => {
-      const ownerMembership = await this.authorizeOwner(
-        manager,
-        actorId,
-        organizationId,
-      );
-      const target = await manager.organizationMember.findFirst({
-        where: {
-          id: memberId,
+    const { result, auditEvent } = await this.prisma.serializableTransaction(
+      async (manager) => {
+        const ownerMembership = await this.authorizeOwner(
+          manager,
+          actorId,
           organizationId,
-          status: 'ACTIVE',
-          deletedAt: null,
-          user: { deletedAt: null },
-        },
-        select: { userId: true },
-      });
-      if (!target)
-        throw new NotFoundException('Active organization member not found');
-      if (target.userId === actorId)
-        throw new ConflictException(
-          'Choose a different member as the new owner',
         );
+        const target = await manager.organizationMember.findFirst({
+          where: {
+            id: memberId,
+            organizationId,
+            status: 'ACTIVE',
+            deletedAt: null,
+            user: { deletedAt: null },
+          },
+          select: { userId: true },
+        });
+        if (!target)
+          throw new NotFoundException('Active organization member not found');
+        if (target.userId === actorId)
+          throw new ConflictException(
+            'Choose a different member as the new owner',
+          );
 
-      await this.ensureMemberRole(manager, organizationId, ownerMembership.id);
-      const organization = await manager.organization.update({
-        where: {
-          id: organizationId,
-          ownerId: actorId,
-          isActive: true,
-          deletedAt: null,
-        },
-        data: { ownerId: target.userId },
-        select: { id: true, ownerId: true },
-      });
-      return { ...organization, previousOwnerId: actorId };
-    });
+        await this.ensureMemberRole(
+          manager,
+          organizationId,
+          ownerMembership.id,
+        );
+        const organization = await manager.organization.update({
+          where: {
+            id: organizationId,
+            ownerId: actorId,
+            isActive: true,
+            deletedAt: null,
+          },
+          data: { ownerId: target.userId },
+          select: { id: true, ownerId: true },
+        });
+        const auditEvent = await this.logging.audit(
+          {
+            action: 'organization.ownership.transferred',
+            actor: { type: 'USER', id: actorId },
+            target: { type: 'ORGANIZATION', id: organizationId },
+            organizationId,
+            payload: {
+              previousOwnerId: actorId,
+              newOwnerId: target.userId,
+              previousOwnerMembershipId: ownerMembership.id,
+            },
+            requestContext: { requestId: currentRequestId() },
+          },
+          manager,
+        );
+        return {
+          result: { ...organization, previousOwnerId: actorId },
+          auditEvent,
+        };
+      },
+    );
+    this.logging.publishCommittedAudit(auditEvent);
+    return result;
   }
 
   private async authorizeOwner(

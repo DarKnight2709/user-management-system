@@ -62,6 +62,26 @@ const organizationRoleAuditEventSchema = Joi.object({
   requestContext: Joi.object({ requestId: idSchema }).required(),
 });
 
+const organizationAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('ORGANIZATION').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema,
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
+const organizationNameSchema = Joi.string().min(1).max(100).required();
+const organizationSlugSchema = Joi.string()
+  .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+  .min(3)
+  .max(63)
+  .required();
+
 export const auditEventSchema = Joi.alternatives<AuditEventInput>()
   .try(
     organizationMemberRoleAuditEventSchema.keys({
@@ -86,6 +106,44 @@ export const auditEventSchema = Joi.alternatives<AuditEventInput>()
     organizationRoleAuditEventSchema.keys({
       action: Joi.string().valid('organization.role.deleted').required(),
       payload: organizationRoleSnapshotSchema,
+    }),
+    organizationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.created').required(),
+      payload: Joi.object({
+        name: organizationNameSchema,
+        slug: organizationSlugSchema,
+        ownerId: idSchema,
+      }).required(),
+    }),
+    organizationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.updated').required(),
+      payload: Joi.object({
+        before: Joi.object({ name: organizationNameSchema }).required(),
+        after: Joi.object({ name: organizationNameSchema }).required(),
+      }).required(),
+    }),
+    organizationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.deleted').required(),
+      payload: Joi.object({
+        name: organizationNameSchema,
+        slug: organizationSlugSchema,
+        ownerId: idSchema,
+        revokedPendingInvitationCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
+      }).required(),
+    }),
+    organizationAuditEventSchema.keys({
+      action: Joi.string()
+        .valid('organization.ownership.transferred')
+        .required(),
+      payload: Joi.object({
+        previousOwnerId: idSchema,
+        newOwnerId: idSchema,
+        previousOwnerMembershipId: idSchema,
+      }).required(),
     }),
   )
   .required()
