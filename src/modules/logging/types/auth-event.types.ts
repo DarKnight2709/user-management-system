@@ -1,21 +1,17 @@
-type AuthRequestContext = {
-  requestId: string;
-  sourceIp?: string;
-  userAgent?: string;
-};
+import type { SecurityRequestContext } from './security-request-context.types.js';
 
 export type AuthSecurityEventInput =
   | {
       action: 'auth.registration.succeeded';
       actor: { type: 'ANONYMOUS' };
       target: { type: 'USER'; id: string };
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     }
   | {
       action: 'auth.password.change_failed';
       actor: { type: 'USER'; id: string };
       reasonCode: 'INVALID_CURRENT_PASSWORD';
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     }
   | {
       action: 'auth.login.succeeded';
@@ -25,7 +21,7 @@ export type AuthSecurityEventInput =
       };
       authMethod: 'PASSWORD';
       sessionRef: string;
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     }
   | {
       action: 'auth.login.failed';
@@ -35,7 +31,7 @@ export type AuthSecurityEventInput =
       authMethod: 'PASSWORD';
       reasonCode: 'INVALID_CREDENTIALS' | 'ACCOUNT_UNAVAILABLE';
       loginIdentifierRef?: string;
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     }
   | {
       action: 'auth.password.changed';
@@ -43,7 +39,7 @@ export type AuthSecurityEventInput =
         type: 'USER';
         id: string;
       };
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     }
   | {
       action: 'auth.refresh_token.reuse_detected';
@@ -55,7 +51,7 @@ export type AuthSecurityEventInput =
         id: string;
       };
       sessionRef: string;
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     }
   | {
       action: 'auth.logout.completed';
@@ -65,7 +61,7 @@ export type AuthSecurityEventInput =
       };
       scope: 'SESSION_FAMILY';
       sessionRef?: string;
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     }
   | {
       action: 'auth.logout.completed';
@@ -74,7 +70,7 @@ export type AuthSecurityEventInput =
         id: string;
       };
       scope: 'ALL_SESSIONS';
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     }
   | {
       action: 'auth.login.throttled';
@@ -82,5 +78,5 @@ export type AuthSecurityEventInput =
         type: 'ANONYMOUS';
       };
       limitPolicy: 'IP' | 'ACCOUNT';
-      requestContext: AuthRequestContext;
+      requestContext: SecurityRequestContext;
     };

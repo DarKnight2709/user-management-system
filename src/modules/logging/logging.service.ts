@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import type { Logger } from 'winston';
 
-import type { AuthSecurityEventInput } from './types/auth-event.types.js';
+import type { SecurityEventInput } from './types/security-event.types.js';
 import { parseAuthSecurityEvent } from './schemas/auth-event.schema.js';
+import { parseAuthorizationDeniedEvent } from './schemas/authorization-denied-event.schema.js';
 
 import { AUTH_EVENT_POLICIES } from './policies/auth-event.policy.js';
+import { AUTHORIZATION_EVENT_POLICIES } from './policies/authorization-event.policy.js';
 import { ConfigService } from '@nestjs/config';
 import type { ApplicationEventInput } from './types/application-event.types.js';
 import { parseApplicationEvent } from './schemas/application-event.schema.js';
@@ -94,15 +96,22 @@ export class LoggingService implements OnModuleDestroy {
    * - Policy hiện tại chỉ xuất qua Winston Console.
    * - Không chờ Loki xác nhận lưu thành công.
    */
-  security(input: AuthSecurityEventInput): void {
+  security(input: SecurityEventInput): void {
     try {
-      const event = parseAuthSecurityEvent(input);
-      const policy = AUTH_EVENT_POLICIES[event.action];
+      const event =
+        input.action === 'authorization.denied'
+          ? parseAuthorizationDeniedEvent(input)
+          : parseAuthSecurityEvent(input);
+      const policy =
+        event.action === 'authorization.denied'
+          ? AUTHORIZATION_EVENT_POLICIES[event.action]
+          : AUTH_EVENT_POLICIES[event.action];
 
       this.writeConsole(policy.level, {
         ...event,
         ...this.envelope(),
         context: 'LoggingService',
+        event: event.action,
 
         // Giá trị do policy quyết định.
         schemaVersion: policy.schemaVersion,
