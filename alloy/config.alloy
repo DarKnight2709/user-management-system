@@ -5,7 +5,8 @@ logging {
 
 // Khám phá tất cả container Docker đang chạy
 discovery.docker "containers" {
-  host = "unix:///var/run/docker.sock"
+  host            = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
 
   filter {
     name   = "label"

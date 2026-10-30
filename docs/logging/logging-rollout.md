@@ -98,8 +98,10 @@ application runtime.
   still zero, so no successful retention sweep had yet been reported.
 - After backend replacement, Alloy continued querying the old Docker container
   ID during this check. Restarting Alloy refreshed discovery and the new
-  backend's events then appeared in Loki. This observation is local only and
-  should be rechecked during normal deployment/restart behavior.
+  backend's events then appeared in Loki. `discovery.docker` now explicitly
+  refreshes targets every 10 seconds (the Alloy default is 1 minute), which
+  should shorten stale-target recovery after container replacement. This
+  runtime behavior still needs verification after Docker Desktop is available.
 - This did not verify production JSON output, all event families through the
   production reverse proxy, `application.shutdown_failed`, comprehensive
   sensitive-data exclusion, or actual Loki retention deletion.
