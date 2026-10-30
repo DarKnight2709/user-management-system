@@ -75,6 +75,20 @@ const organizationAuditEventSchema = Joi.object({
   requestContext: Joi.object({ requestId: idSchema }).required(),
 });
 
+const organizationMemberAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('ORGANIZATION_MEMBER').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema,
+  payload: Joi.object({ memberUserId: idSchema }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
 const organizationNameSchema = Joi.string().min(1).max(100).required();
 const organizationSlugSchema = Joi.string()
   .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
@@ -114,6 +128,12 @@ export const auditEventSchema = Joi.alternatives<AuditEventInput>()
         slug: organizationSlugSchema,
         ownerId: idSchema,
       }).required(),
+    }),
+    organizationMemberAuditEventSchema.keys({
+      action: Joi.string().valid('organization.member.removed').required(),
+    }),
+    organizationMemberAuditEventSchema.keys({
+      action: Joi.string().valid('organization.member.left').required(),
     }),
     organizationAuditEventSchema.keys({
       action: Joi.string().valid('organization.updated').required(),

@@ -55,6 +55,20 @@ type OrganizationAuditEvent = {
   requestContext: AuditRequestContext;
 };
 
+type OrganizationMemberAuditEvent = {
+  actor: {
+    type: 'USER';
+    id: string;
+  };
+  target: {
+    type: 'ORGANIZATION_MEMBER';
+    id: string;
+  };
+  organizationId: string;
+  payload: { memberUserId: string };
+  requestContext: AuditRequestContext;
+};
+
 export type AuditEventInput =
   | (OrganizationMemberRoleAuditEvent & {
       action: 'organization.member_role.assigned';
@@ -97,6 +111,9 @@ export type AuditEventInput =
         newOwnerId: string;
         previousOwnerMembershipId: string;
       };
+    })
+  | (OrganizationMemberAuditEvent & {
+      action: 'organization.member.removed' | 'organization.member.left';
     });
 
 export type AuditEventName = AuditEventInput['action'];
