@@ -114,6 +114,10 @@ export type AuditEventInput =
       payload: { selfDeletion: boolean; revokedRefreshTokenCount: number };
     })
   | (UserAuditEvent & {
+      action: 'user.password.changed';
+      payload: { revokedRefreshTokenCount: number };
+    })
+  | (UserAuditEvent & {
       action: 'user.avatar.updated';
       payload: { change: 'ADDED' | 'REPLACED' };
     })

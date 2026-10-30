@@ -170,6 +170,16 @@ export const auditEventSchema = Joi.alternatives<AuditEventInput>()
       }).required(),
     }),
     userAuditEventSchema.keys({
+      action: Joi.string().valid('user.password.changed').required(),
+      payload: Joi.object({
+        revokedRefreshTokenCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
+      }).required(),
+    }),
+    userAuditEventSchema.keys({
       action: Joi.string().valid('user.avatar.updated').required(),
       payload: Joi.object({
         change: Joi.string().valid('ADDED', 'REPLACED').required(),

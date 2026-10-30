@@ -166,26 +166,42 @@ export class AuthService {
     }
 
     const hashedPassword = await hash(dto.newPassword);
-    await this.prisma.serializableTransaction(async (manager) => {
-      const updated = await manager.user.updateMany({
-        where: {
-          id: userId,
-          deletedAt: null,
-          hashedPassword: user.hashedPassword,
-        },
-        data: { hashedPassword },
-      });
-      if (updated.count !== 1) {
-        throw new UnauthorizedException(
-          'Account or password changed; authenticate again',
-        );
-      }
-      await manager.refreshToken.updateMany({
-        where: { userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-    });
+    const auditEvent = await this.prisma.serializableTransaction(
+      async (manager) => {
+        const updated = await manager.user.updateMany({
+          where: {
+            id: userId,
+            deletedAt: null,
+            hashedPassword: user.hashedPassword,
+          },
+          data: { hashedPassword },
+        });
+        if (updated.count !== 1) {
+          throw new UnauthorizedException(
+            'Account or password changed; authenticate again',
+          );
+        }
+        const revoked = await manager.refreshToken.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
 
+        return this.loggingService.audit(
+          {
+            action: 'user.password.changed',
+            actor: { type: 'USER', id: userId },
+            target: { type: 'USER', id: userId },
+            payload: { revokedRefreshTokenCount: revoked.count },
+            requestContext: {
+              requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            },
+          },
+          manager,
+        );
+      },
+    );
+
+    this.loggingService.publishCommittedAudit(auditEvent);
     this.loggingService.security({
       action: 'auth.password.changed',
       actor: { type: 'USER', id: userId },
