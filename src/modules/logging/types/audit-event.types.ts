@@ -20,12 +20,45 @@ type OrganizationMemberRoleAuditEvent = {
   requestContext: AuditRequestContext;
 };
 
+type OrganizationRoleSnapshot = {
+  name: string;
+  permissions: {
+    id: string;
+    resource: string;
+    action: string;
+  }[];
+};
+
+type OrganizationRoleAuditEvent = {
+  actor: {
+    type: 'USER';
+    id: string;
+  };
+  target: {
+    type: 'ROLE';
+    id: string;
+  };
+  organizationId: string;
+  requestContext: AuditRequestContext;
+};
+
 export type AuditEventInput =
   | (OrganizationMemberRoleAuditEvent & {
       action: 'organization.member_role.assigned';
     })
   | (OrganizationMemberRoleAuditEvent & {
       action: 'organization.member_role.revoked';
+    })
+  | (OrganizationRoleAuditEvent & {
+      action: 'organization.role.created' | 'organization.role.deleted';
+      payload: OrganizationRoleSnapshot;
+    })
+  | (OrganizationRoleAuditEvent & {
+      action: 'organization.role.updated';
+      payload: {
+        before: OrganizationRoleSnapshot;
+        after: OrganizationRoleSnapshot;
+      };
     });
 
 export type AuditEventName = AuditEventInput['action'];

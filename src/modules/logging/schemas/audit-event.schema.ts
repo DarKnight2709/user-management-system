@@ -24,6 +24,44 @@ const organizationMemberRoleAuditEventSchema = Joi.object({
   requestContext: Joi.object({ requestId: idSchema }).required(),
 });
 
+const roleNameSchema = Joi.string()
+  .pattern(/^[A-Z][A-Z0-9_]{0,49}$/)
+  .required();
+
+const rolePermissionsSchema = Joi.array()
+  .items(
+    Joi.object({
+      id: idSchema,
+      resource: Joi.string()
+        .pattern(/^[A-Z][A-Z0-9_]{0,63}$/)
+        .required(),
+      action: Joi.string()
+        .pattern(/^[a-z][a-z0-9-]{0,63}$/)
+        .required(),
+    }).required(),
+  )
+  .max(64)
+  .unique('id')
+  .required();
+
+const organizationRoleSnapshotSchema = Joi.object({
+  name: roleNameSchema,
+  permissions: rolePermissionsSchema,
+}).required();
+
+const organizationRoleAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('ROLE').required(),
+    id: idSchema,
+  }).required(),
+  organizationId: idSchema,
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
 export const auditEventSchema = Joi.alternatives<AuditEventInput>()
   .try(
     organizationMemberRoleAuditEventSchema.keys({
@@ -33,6 +71,21 @@ export const auditEventSchema = Joi.alternatives<AuditEventInput>()
     }),
     organizationMemberRoleAuditEventSchema.keys({
       action: Joi.string().valid('organization.member_role.revoked').required(),
+    }),
+    organizationRoleAuditEventSchema.keys({
+      action: Joi.string().valid('organization.role.created').required(),
+      payload: organizationRoleSnapshotSchema,
+    }),
+    organizationRoleAuditEventSchema.keys({
+      action: Joi.string().valid('organization.role.updated').required(),
+      payload: Joi.object({
+        before: organizationRoleSnapshotSchema,
+        after: organizationRoleSnapshotSchema,
+      }).required(),
+    }),
+    organizationRoleAuditEventSchema.keys({
+      action: Joi.string().valid('organization.role.deleted').required(),
+      payload: organizationRoleSnapshotSchema,
     }),
   )
   .required()

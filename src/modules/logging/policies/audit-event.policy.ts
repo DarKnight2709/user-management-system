@@ -61,4 +61,58 @@ export const AUDIT_POLICIES = {
     onPersistenceFailure: 'rollback',
     onLoggingFailure: 'preserve-business-result',
   },
+  'organization.role.created': {
+    schemaVersion: 1,
+    category: 'audit',
+
+    persistToPostgres: true,
+    transaction: 'required',
+
+    output: 'winston-console',
+    publishCopy: 'after-commit',
+
+    outcome: 'SUCCESS',
+    level: 'info',
+
+    emitWhen: 'business-change-committed',
+
+    onPersistenceFailure: 'rollback',
+    onLoggingFailure: 'preserve-business-result',
+  },
+  'organization.role.updated': {
+    schemaVersion: 1,
+    category: 'audit',
+
+    persistToPostgres: true,
+    transaction: 'required',
+
+    output: 'winston-console',
+    publishCopy: 'after-commit',
+
+    outcome: 'SUCCESS',
+    level: 'info',
+
+    emitWhen: 'business-change-committed',
+
+    onPersistenceFailure: 'rollback',
+    onLoggingFailure: 'preserve-business-result',
+  },
+  'organization.role.deleted': {
+    schemaVersion: 1,
+    category: 'audit',
+
+    persistToPostgres: true,
+    transaction: 'required',
+
+    output: 'winston-console',
+    publishCopy: 'after-commit',
+
+    outcome: 'SUCCESS',
+    level: 'info',
+
+    emitWhen: 'business-change-committed',
+
+    onPersistenceFailure: 'rollback',
+    onLoggingFailure: 'preserve-business-result',
+  },
 } as const satisfies Record<AuditEventName, AuditEventPolicy>;
