@@ -312,6 +312,8 @@ export class AuthService {
         event: 'auth.refresh_failed',
         requestContext: {
           requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          sourceIp: ipAddress,
+          userAgent,
         },
       });
       throw error;
@@ -364,6 +366,8 @@ export class AuthService {
           scope: 'session_family',
           requestContext: {
             requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            sourceIp: ipAddress,
+            userAgent,
           },
         });
       }
@@ -409,6 +413,8 @@ export class AuthService {
         scope: 'all_sessions',
         requestContext: {
           requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          sourceIp: ipAddress,
+          userAgent,
         },
       });
       throw error;

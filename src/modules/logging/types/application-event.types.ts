@@ -1,6 +1,10 @@
+import type { SecurityRequestContext } from './security-request-context.types.js';
+
 type ApplicationRequestContext = {
   requestId: string;
 };
+
+type AuthApplicationRequestContext = SecurityRequestContext;
 
 export type ApplicationEventInput =
   | (HttpRequestFields & {
@@ -113,19 +117,19 @@ export type ApplicationEventInput =
     }
   | {
       event: 'auth.refresh_failed';
-      requestContext: ApplicationRequestContext;
+      requestContext: AuthApplicationRequestContext;
     }
   | {
       event: 'auth.logout_failed';
       userId: string;
       scope: 'all_sessions';
-      requestContext: ApplicationRequestContext;
+      requestContext: AuthApplicationRequestContext;
     }
   | {
       event: 'auth.logout_session_failed';
       userId: string;
       scope: 'session_family';
-      requestContext: ApplicationRequestContext;
+      requestContext: AuthApplicationRequestContext;
     };
 
 type HttpRequestFields = {

@@ -1,5 +1,6 @@
 import Joi from 'joi';
 import type { ApplicationEventInput } from '../types/application-event.types.js';
+import { securityRequestContextSchema } from './security-request-context.schema.js';
 
 const requestContextSchema = Joi.object({
   requestId: Joi.string().uuid().required(),
@@ -257,19 +258,19 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
     }),
     Joi.object({
       event: Joi.string().valid('auth.refresh_failed').required(),
-      requestContext: requestContextSchema,
+      requestContext: securityRequestContextSchema,
     }),
     Joi.object({
       event: Joi.string().valid('auth.logout_failed').required(),
       userId: Joi.string().uuid().required(),
       scope: Joi.string().valid('all_sessions').required(),
-      requestContext: requestContextSchema,
+      requestContext: securityRequestContextSchema,
     }),
     Joi.object({
       event: Joi.string().valid('auth.logout_session_failed').required(),
       userId: Joi.string().uuid().required(),
       scope: Joi.string().valid('session_family').required(),
-      requestContext: requestContextSchema,
+      requestContext: securityRequestContextSchema,
     }),
   )
   .required()
