@@ -10,8 +10,15 @@ import { parseAuthorizationDeniedEvent } from './schemas/authorization-denied-ev
 import { AUTH_EVENT_POLICIES } from './policies/auth-event.policy.js';
 import { AUTHORIZATION_EVENT_POLICIES } from './policies/authorization-event.policy.js';
 import { ConfigService } from '@nestjs/config';
+import type { Prisma } from '@/generated/prisma/client.js';
 import type { ApplicationEventInput } from './types/application-event.types.js';
 import { parseApplicationEvent } from './schemas/application-event.schema.js';
+import type {
+  AuditEventInput,
+  StoredAuditEvent,
+} from './types/audit-event.types.js';
+import { parseAuditEvent } from './schemas/audit-event.schema.js';
+import { AUDIT_POLICIES } from './policies/audit-event.policy.js';
 import {
   APPLICATION_EVENT_POLICIES,
   applicationEventLevel,
@@ -23,12 +30,6 @@ type EventEnvelope = {
   occurredAt: string;
   environment: string;
 };
-
-// export type StoredAuditEvent = EventEnvelope &
-//   AuditInput & {
-//     category: 'audit';
-//     outcome: 'SUCCESS';
-//   };
 
 type FailureReason =
   | 'APPLICATION_LOG_FAILED'
@@ -128,83 +129,64 @@ export class LoggingService implements OnModuleDestroy {
     }
   }
 
-  /**
-   * Audit:
-   * - Caller phải truyền tx đang xử lý nghiệp vụ.
-   * - Lỗi validation/database được throw để transaction rollback.
-   * - Không xuất Winston ở đây vì tx chưa commit.
-   */
-  // async audit(
-  //   input: AuditInput,
-  //   tx: Prisma.TransactionClient,
-  // ): Promise<StoredAuditEvent> {
-  //   const parsed = auditInputSchema.parse(input);
-  //   const policy = AUDIT_POLICIES[parsed.action];
+  /** Persist the authoritative audit record in the caller's business transaction. */
+  async audit(
+    input: AuditEventInput,
+    manager: Prisma.TransactionClient,
+  ): Promise<StoredAuditEvent> {
+    const parsed = parseAuditEvent(input);
+    const policy = AUDIT_POLICIES[parsed.action];
+    const event: StoredAuditEvent = {
+      ...parsed,
+      ...this.envelope(),
+      category: policy.category,
+      outcome: policy.outcome,
+    };
 
-  //   if (parsed.changes.role.before === parsed.changes.role.after) {
-  //     throw new Error('user.role.changed requires an actual role change');
-  //   }
+    // Check the complete event size before writing in the business transaction.
+    this.serialize(event);
 
-  //   const event: StoredAuditEvent = {
-  //     ...parsed,
-  //     ...this.envelope(),
-  //     category: 'audit',
-  //     outcome: policy.outcome,
-  //   };
+    const payload = JSON.parse(
+      JSON.stringify(event.payload),
+    ) as Prisma.InputJsonValue;
 
-  //   // Serialize trước để kiểm tra tổng byte và tạo payload JSON.
-  //   const serialized = this.serialize(event);
+    await manager.auditEvent.create({
+      data: {
+        eventId: event.eventId,
+        schemaVersion: event.schemaVersion,
+        action: event.action,
+        actorId: event.actor.id,
+        actorType: event.actor.type,
+        targetId: event.target.id,
+        targetType: event.target.type,
+        organizationId: event.organizationId,
+        requestId: event.requestContext.requestId,
+        occurredAt: new Date(event.occurredAt),
+        payload,
+      },
+    });
 
-  //   const payload = JSON.parse(serialized) as Prisma.InputJsonObject;
+    return event;
+  }
 
-  //   await tx.auditEvent.create({
-  //     data: {
-  //       eventId: event.eventId,
-  //       schemaVersion: event.schemaVersion,
-  //       action: event.action,
-  //       outcome: event.outcome,
-  //       actorId: event.actor.id,
-  //       targetId: event.target.id,
-  //       requestId: event.context.requestId,
-  //       occurredAt: new Date(event.occurredAt),
-  //       payload,
-  //     },
-  //   });
-
-  //   return event;
-  // }
-
-  /**
-   * Chỉ gọi sau khi $transaction(...) resolve thành công.
-   * Đây là bản sao best-effort; PostgreSQL là bản chính.
-   */
-  // publishCommittedAudit(event: StoredAuditEvent): void {
-  //   try {
-  //     // Kiểm tra lại các trường nghiệp vụ.
-  //     auditInputSchema.parse({
-  //       action: event.action,
-  //       actor: event.actor,
-  //       target: event.target,
-  //       changes: event.changes,
-  //       context: event.context,
-  //     });
-
-  //     const policy = AUDIT_POLICIES[event.action];
-
-  //     this.writeConsole(policy.level, {
-  //       ...event,
-  //       message: event.action,
-  //     });
-  //   } catch {
-  //     // Không throw: nghiệp vụ đã commit.
-  //     this.reportFailure('AUDIT_COPY_FAILED');
-  //   }
-  // }
-
-  /**
-   * Có thể dùng để kiểm tra trong giai đoạn đầu.
-   * Khi thêm metrics, thay bằng counter có reason label hữu hạn.
-   */
+  /** Publish only after the transaction that stored this event has committed. */
+  publishCommittedAudit(event: StoredAuditEvent): void {
+    try {
+      const policy = AUDIT_POLICIES[event.action];
+      this.writeConsole(policy.level, {
+        ...event,
+        event: event.action,
+        schemaVersion: policy.schemaVersion,
+        category: policy.category,
+        outcome: policy.outcome,
+        requestId: event.requestContext.requestId,
+        message: event.action,
+      });
+    } catch {
+      // The database record is authoritative; this console copy is best-effort.
+      this.reportFailure('AUDIT_COPY_FAILED');
+    }
+  }
   getFailureCount(): number {
     return this.failures;
   }

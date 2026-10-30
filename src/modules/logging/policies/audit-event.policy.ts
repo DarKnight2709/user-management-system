@@ -1,4 +1,4 @@
-export type AuditEventName = 'user.role.changed';
+import type { AuditEventName } from '../types/audit-event.types.js';
 
 type AuditEventPolicy = {
   schemaVersion: 1;
@@ -25,7 +25,25 @@ type AuditEventPolicy = {
 };
 
 export const AUDIT_POLICIES = {
-  'user.role.changed': {
+  'organization.member_role.assigned': {
+    schemaVersion: 1,
+    category: 'audit',
+
+    persistToPostgres: true,
+    transaction: 'required',
+
+    output: 'winston-console',
+    publishCopy: 'after-commit',
+
+    outcome: 'SUCCESS',
+    level: 'info',
+
+    emitWhen: 'business-change-committed',
+
+    onPersistenceFailure: 'rollback',
+    onLoggingFailure: 'preserve-business-result',
+  },
+  'organization.member_role.revoked': {
     schemaVersion: 1,
     category: 'audit',
 
