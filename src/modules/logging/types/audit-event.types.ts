@@ -69,6 +69,19 @@ type OrganizationMemberAuditEvent = {
   requestContext: AuditRequestContext;
 };
 
+type OrganizationInvitationAuditEvent = {
+  actor: {
+    type: 'USER';
+    id: string;
+  };
+  target: {
+    type: 'ORGANIZATION_INVITATION';
+    id: string;
+  };
+  organizationId: string;
+  requestContext: AuditRequestContext;
+};
+
 export type AuditEventInput =
   | (OrganizationMemberRoleAuditEvent & {
       action: 'organization.member_role.assigned';
@@ -114,6 +127,31 @@ export type AuditEventInput =
     })
   | (OrganizationMemberAuditEvent & {
       action: 'organization.member.removed' | 'organization.member.left';
+    })
+  | (OrganizationInvitationAuditEvent & {
+      action: 'organization.invitation.created';
+      payload: {
+        expiresAt: string;
+        expiredInvitationCount: number;
+        revokedStaleInvitationCount: number;
+      };
+    })
+  | (OrganizationInvitationAuditEvent & {
+      action: 'organization.invitation.resend_requested';
+      payload: { deliveryVersion: number; resendCount: number };
+    })
+  | (OrganizationInvitationAuditEvent & {
+      action: 'organization.invitation.revoked';
+      payload: { deliveryVersion: number };
+    })
+  | (OrganizationInvitationAuditEvent & {
+      action: 'organization.invitation.accepted';
+      payload: {
+        membershipId: string;
+        membershipReactivated: boolean;
+        previousRoleIds: string[];
+        memberRoleId: string;
+      };
     });
 
 export type AuditEventName = AuditEventInput['action'];

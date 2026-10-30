@@ -20,6 +20,11 @@ import { InvitationLinksService } from './invitation-links.service.js';
 import { InvitationEmailService } from './invitation-email.service.js';
 import { CreateInvitationDto } from '../dto/invitation.dto.js';
 import { ListOrganizationsQueryDto } from '../../dto/list-organizations-query.dto.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
+
+const currentRequestId = () =>
+  requestContext.getStore()?.requestId ?? randomUUID();
 
 const summary = {
   id: true,
@@ -48,6 +53,7 @@ export class InvitationsService {
     private readonly permissions: PermissionsService,
     private readonly links: InvitationLinksService,
     private readonly email: InvitationEmailService,
+    private readonly logging: LoggingService,
   ) {}
 
   private async authorize(
@@ -151,8 +157,8 @@ export class InvitationsService {
     const email = dto.email.trim().toLowerCase();
     const id = randomUUID();
     const tokenHash = this.links.hash(this.links.token(id));
-    const invitation = await this.prisma.serializableTransaction(
-      async (manager) => {
+    const { invitation, auditEvent } =
+      await this.prisma.serializableTransaction(async (manager) => {
         await this.authorize(manager, actorId, organizationId);
         const previous = await this.assertInvitable(
           manager,
@@ -163,8 +169,9 @@ export class InvitationsService {
         const now = new Date(
           Math.max(Date.now(), (previous?.deletedAt?.getTime() ?? 0) + 1),
         );
+        let revokedStaleInvitationCount = 0;
         if (previous?.deletedAt) {
-          await manager.organizationInvitation.updateMany({
+          const revoked = await manager.organizationInvitation.updateMany({
             where: {
               organizationId,
               email,
@@ -173,8 +180,9 @@ export class InvitationsService {
             },
             data: { status: 'REVOKED', revokedAt: now },
           });
+          revokedStaleInvitationCount = revoked.count;
         }
-        await manager.organizationInvitation.updateMany({
+        const expired = await manager.organizationInvitation.updateMany({
           where: {
             organizationId,
             email,
@@ -191,7 +199,7 @@ export class InvitationsService {
           throw new ConflictException(
             'A pending invitation already exists; use resend or copy link',
           );
-        return manager.organizationInvitation.create({
+        const invitation = await manager.organizationInvitation.create({
           data: {
             id,
             organizationId,
@@ -203,14 +211,30 @@ export class InvitationsService {
             lastRequestedAt: now,
           },
         });
-      },
-    );
+        const auditEvent = await this.logging.audit(
+          {
+            action: 'organization.invitation.created',
+            actor: { type: 'USER', id: actorId },
+            target: { type: 'ORGANIZATION_INVITATION', id: invitation.id },
+            organizationId,
+            payload: {
+              expiresAt: invitation.expiresAt.toISOString(),
+              expiredInvitationCount: expired.count,
+              revokedStaleInvitationCount,
+            },
+            requestContext: { requestId: currentRequestId() },
+          },
+          manager,
+        );
+        return { invitation, auditEvent };
+      });
+    this.logging.publishCommittedAudit(auditEvent);
     return await this.result(invitation);
   }
 
   async resend(actorId: string, organizationId: string, invitationId: string) {
-    const invitation = await this.prisma.serializableTransaction(
-      async (manager) => {
+    const { invitation, auditEvent } =
+      await this.prisma.serializableTransaction(async (manager) => {
         await this.authorize(manager, actorId, organizationId);
         const invite = await manager.organizationInvitation.findFirst({
           where: { id: invitationId, organizationId },
@@ -226,7 +250,7 @@ export class InvitationsService {
         this.assertFreshInvitation(invite, previous);
         this.assertResendAllowed(invite);
 
-        return manager.organizationInvitation.update({
+        const invitation = await manager.organizationInvitation.update({
           where: { id: invite.id },
           data: {
             resendCount: { increment: 1 },
@@ -236,8 +260,23 @@ export class InvitationsService {
             sentAt: null,
           },
         });
-      },
-    );
+        const auditEvent = await this.logging.audit(
+          {
+            action: 'organization.invitation.resend_requested',
+            actor: { type: 'USER', id: actorId },
+            target: { type: 'ORGANIZATION_INVITATION', id: invite.id },
+            organizationId,
+            payload: {
+              deliveryVersion: invitation.deliveryVersion,
+              resendCount: invitation.resendCount,
+            },
+            requestContext: { requestId: currentRequestId() },
+          },
+          manager,
+        );
+        return { invitation, auditEvent };
+      });
+    this.logging.publishCommittedAudit(auditEvent);
     return this.result(invitation);
   }
 
@@ -291,20 +330,34 @@ export class InvitationsService {
   }
 
   async revoke(actorId: string, organizationId: string, invitationId: string) {
-    await this.prisma.serializableTransaction(async (manager) => {
-      await this.authorize(manager, actorId, organizationId);
-      const invite = await manager.organizationInvitation.findFirst({
-        where: { id: invitationId, organizationId },
-      });
-      if (!invite) throw new NotFoundException('Invitation not found');
-      if (invite.status === 'REVOKED') return;
-      if (invite.status === 'ACCEPTED')
-        throw new ConflictException('Accepted invitations cannot be revoked');
-      await manager.organizationInvitation.update({
-        where: { id: invite.id },
-        data: { status: 'REVOKED', revokedAt: new Date() },
-      });
-    });
+    const auditEvent = await this.prisma.serializableTransaction(
+      async (manager) => {
+        await this.authorize(manager, actorId, organizationId);
+        const invite = await manager.organizationInvitation.findFirst({
+          where: { id: invitationId, organizationId },
+        });
+        if (!invite) throw new NotFoundException('Invitation not found');
+        if (invite.status === 'REVOKED') return null;
+        if (invite.status === 'ACCEPTED')
+          throw new ConflictException('Accepted invitations cannot be revoked');
+        await manager.organizationInvitation.update({
+          where: { id: invite.id },
+          data: { status: 'REVOKED', revokedAt: new Date() },
+        });
+        return this.logging.audit(
+          {
+            action: 'organization.invitation.revoked',
+            actor: { type: 'USER', id: actorId },
+            target: { type: 'ORGANIZATION_INVITATION', id: invite.id },
+            organizationId,
+            payload: { deliveryVersion: invite.deliveryVersion },
+            requestContext: { requestId: currentRequestId() },
+          },
+          manager,
+        );
+      },
+    );
+    if (auditEvent) this.logging.publishCommittedAudit(auditEvent);
   }
 
   async list(
@@ -339,74 +392,115 @@ export class InvitationsService {
   }
 
   async accept(actorId: string, token: string) {
-    return this.prisma.serializableTransaction(async (manager) => {
-      const user = await manager.user.findUnique({
-        where: { id: actorId, deletedAt: null },
-        select: { id: true, email: true },
-      });
-      if (!user) throw new UnauthorizedException('Authentication required');
+    const { result, auditEvent } = await this.prisma.serializableTransaction(
+      async (manager) => {
+        const user = await manager.user.findUnique({
+          where: { id: actorId, deletedAt: null },
+          select: { id: true, email: true },
+        });
+        if (!user) throw new UnauthorizedException('Authentication required');
 
-      const invitation = await manager.organizationInvitation.findUnique({
-        where: { tokenHash: this.links.hash(token) },
-      });
-      if (!invitation) throw new BadRequestException('Invalid invitation');
-      if (
-        this.links.hash(this.links.token(invitation.id)) !==
-        invitation.tokenHash
-      ) {
-        throw new BadRequestException('Invalid invitation');
-      }
-      this.pending(invitation);
+        const invitation = await manager.organizationInvitation.findUnique({
+          where: { tokenHash: this.links.hash(token) },
+        });
+        if (!invitation) throw new BadRequestException('Invalid invitation');
+        if (
+          this.links.hash(this.links.token(invitation.id)) !==
+          invitation.tokenHash
+        ) {
+          throw new BadRequestException('Invalid invitation');
+        }
+        this.pending(invitation);
 
-      if (user.email.trim().toLowerCase() !== invitation.email)
-        throw new ForbiddenException('Sign in with the invited email address');
-      const organization = await manager.organization.findUnique({
-        where: {
-          id: invitation.organizationId,
-          deletedAt: null,
-          isActive: true,
-        },
-        select: { id: true },
-      });
-      if (!organization)
-        throw new ConflictException('Organization is unavailable');
-      const previous = await this.assertInvitable(
-        manager,
-        organization.id,
-        invitation.email,
-      );
-      this.assertFreshInvitation(invitation, previous);
-      const role = await manager.role.findFirst({
-        where: {
-          organizationId: organization.id,
-          name: 'MEMBER',
-          isSystem: false,
-          deletedAt: null,
-        },
-        select: { id: true },
-      });
-      if (!role)
-        throw new ServiceUnavailableException(
-          'Organization MEMBER role is unavailable',
+        if (user.email.trim().toLowerCase() !== invitation.email)
+          throw new ForbiddenException(
+            'Sign in with the invited email address',
+          );
+        const organization = await manager.organization.findUnique({
+          where: {
+            id: invitation.organizationId,
+            deletedAt: null,
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        if (!organization)
+          throw new ConflictException('Organization is unavailable');
+        const previous = await this.assertInvitable(
+          manager,
+          organization.id,
+          invitation.email,
         );
+        this.assertFreshInvitation(invitation, previous);
+        const role = await manager.role.findFirst({
+          where: {
+            organizationId: organization.id,
+            name: 'MEMBER',
+            isSystem: false,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (!role)
+          throw new ServiceUnavailableException(
+            'Organization MEMBER role is unavailable',
+          );
 
-      await manager.organizationInvitation.update({
-        where: { id: invitation.id, status: 'PENDING' },
-        data: {
-          status: 'ACCEPTED',
-          acceptedAt: new Date(),
-          acceptedById: user.id,
-        },
-      });
-      const member = await this.joinAsMember(
-        manager,
-        organization.id,
-        user.id,
-        role.id,
-        previous,
-      );
-      return { organizationId: organization.id, membershipId: member.id };
-    });
+        const previousRoleIds = previous?.deletedAt
+          ? (
+              await manager.memberRole.findMany({
+                where: {
+                  organizationMemberId: previous.id,
+                  deletedAt: null,
+                },
+                select: { roleId: true },
+                orderBy: { roleId: 'asc' },
+              })
+            ).map(({ roleId }) => roleId)
+          : [];
+
+        await manager.organizationInvitation.update({
+          where: { id: invitation.id, status: 'PENDING' },
+          data: {
+            status: 'ACCEPTED',
+            acceptedAt: new Date(),
+            acceptedById: user.id,
+          },
+        });
+        const member = await this.joinAsMember(
+          manager,
+          organization.id,
+          user.id,
+          role.id,
+          previous,
+        );
+        const auditEvent = await this.logging.audit(
+          {
+            action: 'organization.invitation.accepted',
+            actor: { type: 'USER', id: user.id },
+            target: {
+              type: 'ORGANIZATION_INVITATION',
+              id: invitation.id,
+            },
+            organizationId: organization.id,
+            payload: {
+              membershipId: member.id,
+              membershipReactivated: Boolean(previous?.deletedAt),
+              previousRoleIds,
+              memberRoleId: role.id,
+            },
+            requestContext: { requestId: currentRequestId() },
+          },
+          manager,
+        );
+        return {
+          result: { organizationId: organization.id, membershipId: member.id },
+          auditEvent,
+        };
+      },
+    );
+    this.logging.publishCommittedAudit(auditEvent);
+    return result;
   }
 
   private async joinAsMember(
