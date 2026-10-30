@@ -159,7 +159,7 @@ export class LoggingService implements OnModuleDestroy {
         actorType: event.actor.type,
         targetId: event.target.id,
         targetType: event.target.type,
-        organizationId: event.organizationId,
+        organizationId: 'organizationId' in event ? event.organizationId : null,
         requestId: event.requestContext.requestId,
         occurredAt: new Date(event.occurredAt),
         payload,

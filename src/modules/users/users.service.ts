@@ -16,6 +16,9 @@ import type { UserModel } from '@/generated/prisma/models/User.js';
 import { AvatarCleanupService } from './avatar-cleanup.service.js';
 import type { Prisma } from '@/generated/prisma/client.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
+import { LoggingService } from '@/modules/logging/logging.service.js';
+import { requestContext } from '@/core/logging/request-context.js';
+import type { StoredAuditEvent } from '@/modules/logging/types/audit-event.types.js';
 
 @Injectable()
 export class UsersService {
@@ -24,6 +27,7 @@ export class UsersService {
     private readonly s3Service: S3Service,
     private readonly avatarCleanup: AvatarCleanupService,
     private readonly permissionsService: PermissionsService,
+    private readonly logging: LoggingService,
   ) {}
 
   private toUserResponse(
@@ -159,19 +163,60 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
-    const updatedUser = await this.prismaService.user.update({
-      where: { id, deletedAt: null },
-      data: {
-        username: updateUserDto.username.trim().toLowerCase(),
-        email: updateUserDto.email.trim().toLowerCase(),
-        firstName: updateUserDto.firstName,
-        lastName: updateUserDto.lastName,
-        birthDate: updateUserDto.birthDate,
-      },
-      omit: { hashedPassword: true },
-    });
+    const { user, auditEvent } =
+      await this.prismaService.serializableTransaction(async (manager) => {
+        const current = await manager.user.findUnique({
+          where: { id, deletedAt: null },
+          omit: { hashedPassword: true },
+        });
+        if (!current) throw new NotFoundException('User not Found');
 
-    return this.toUserResponse(updatedUser);
+        const data = {
+          username: updateUserDto.username.trim().toLowerCase(),
+          email: updateUserDto.email.trim().toLowerCase(),
+          firstName: updateUserDto.firstName,
+          lastName: updateUserDto.lastName,
+          birthDate: updateUserDto.birthDate,
+        };
+        const changedFields = (
+          Object.keys(data) as (keyof typeof data)[]
+        ).filter((field) => {
+          const previous = current[field];
+          const next = data[field];
+          return field === 'birthDate'
+            ? (previous instanceof Date
+                ? previous.getTime()
+                : Date.parse(previous)) !==
+                (next instanceof Date ? next.getTime() : Date.parse(next))
+            : previous !== next;
+        });
+
+        if (changedFields.length === 0)
+          return { user: current, auditEvent: null };
+
+        const updated = await manager.user.update({
+          where: { id, deletedAt: null },
+          data,
+          omit: { hashedPassword: true },
+        });
+        const auditEvent = await this.logging.audit(
+          {
+            action: 'user.profile.updated',
+            actor: { type: 'USER', id },
+            target: { type: 'USER', id },
+            payload: { changedFields },
+            requestContext: {
+              requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            },
+          },
+          manager,
+        );
+
+        return { user: updated, auditEvent };
+      });
+
+    if (auditEvent) this.logging.publishCommittedAudit(auditEvent);
+    return this.toUserResponse(user);
   }
 
   /**
@@ -186,46 +231,66 @@ export class UsersService {
     actorId: string;
     targetId: string;
   }): Promise<void> {
-    await this.prismaService.serializableTransaction(async (manager) => {
-      // JWT authentication may have happened before this account was deleted.
-      const actor = await manager.user.findUnique({
-        where: { id: actorId, deletedAt: null },
-        select: { id: true },
-      });
-      if (!actor) throw new UnauthorizedException('Authentication required');
+    const auditEvent = await this.prismaService.serializableTransaction(
+      async (manager) => {
+        // JWT authentication may have happened before this account was deleted.
+        const actor = await manager.user.findUnique({
+          where: { id: actorId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!actor) throw new UnauthorizedException('Authentication required');
 
-      // Self-deletion needs no admin permission; deleting anyone else requires USER:delete.
-      if (actorId !== targetId) {
-        const allowed = await this.permissionsService.hasPlatformPermission(
-          actorId,
-          { resource: 'USER', action: 'delete' },
+        // Self-deletion needs no admin permission; deleting anyone else requires USER:delete.
+        if (actorId !== targetId) {
+          const allowed = await this.permissionsService.hasPlatformPermission(
+            actorId,
+            { resource: 'USER', action: 'delete' },
+            manager,
+          );
+          if (!allowed)
+            throw new ForbiddenException('Delete action not allowed');
+        }
+
+        // Authorize before lookup so unauthorized callers cannot probe target existence.
+        const target = await manager.user.findUnique({
+          where: { id: targetId },
+          select: { deletedAt: true },
+        });
+        if (!target) throw new NotFoundException('User not found');
+        // Repeat deletion is a no-op only after authenticating and authorizing the actor.
+        if (target.deletedAt !== null) return;
+
+        await this.assertDeletionSafeguards(manager, targetId);
+
+        // Both writes commit together; a revocation failure rolls back account deletion.
+        const now = new Date();
+        await manager.user.update({
+          where: { id: targetId, deletedAt: null },
+          data: { deletedAt: now },
+        });
+        const revoked = await manager.refreshToken.updateMany({
+          where: { userId: targetId, revokedAt: null },
+          data: { revokedAt: now },
+        });
+
+        return this.logging.audit(
+          {
+            action: 'user.deleted',
+            actor: { type: 'USER', id: actorId },
+            target: { type: 'USER', id: targetId },
+            payload: {
+              selfDeletion: actorId === targetId,
+              revokedRefreshTokenCount: revoked.count,
+            },
+            requestContext: {
+              requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            },
+          },
           manager,
         );
-        if (!allowed) throw new ForbiddenException('Delete action not allowed');
-      }
-
-      // Authorize before lookup so unauthorized callers cannot probe target existence.
-      const target = await manager.user.findUnique({
-        where: { id: targetId },
-        select: { deletedAt: true },
-      });
-      if (!target) throw new NotFoundException('User not found');
-      // Repeat deletion is a no-op only after authenticating and authorizing the actor.
-      if (target.deletedAt !== null) return;
-
-      await this.assertDeletionSafeguards(manager, targetId);
-
-      // Both writes commit together; a revocation failure rolls back account deletion.
-      const now = new Date();
-      await manager.user.update({
-        where: { id: targetId, deletedAt: null },
-        data: { deletedAt: now },
-      });
-      await manager.refreshToken.updateMany({
-        where: { userId: targetId, revokedAt: null },
-        data: { revokedAt: now },
-      });
-    });
+      },
+    );
+    if (auditEvent) this.logging.publishCommittedAudit(auditEvent);
   }
 
   private async assertDeletionSafeguards(
@@ -279,34 +344,49 @@ export class UsersService {
       data: { objectKey: key, nextAttemptAt: new Date(Date.now() + 3_600_000) },
     });
     await this.s3Service.upload(key, file.buffer, 'image/jpeg');
-    await this.prismaService.serializableTransaction(async (manager) => {
-      // read the current avatar key
-      const user = await manager.user.findUnique({
-        where: {
-          id: userId,
-          deletedAt: null,
-        },
-        select: {
-          avatarKey: true,
-        },
-      });
-      if (!user) throw new NotFoundException('User not found');
-      // update with the new key
-      await manager.user.update({
-        where: { id: userId, deletedAt: null },
-        data: { avatarKey: key },
-      });
-      if (user.avatarKey) {
-        await manager.avatarCleanupTask.upsert({
-          where: { objectKey: user.avatarKey },
-          create: { objectKey: user.avatarKey },
-          update: { nextAttemptAt: new Date() },
+    const auditEvent: StoredAuditEvent =
+      await this.prismaService.serializableTransaction(async (manager) => {
+        // read the current avatar key
+        const user = await manager.user.findUnique({
+          where: {
+            id: userId,
+            deletedAt: null,
+          },
+          select: {
+            avatarKey: true,
+          },
         });
-      }
-      // New object is now owned by the user; cancel its recovery task.
-      await manager.avatarCleanupTask.delete({ where: { objectKey: key } });
-    });
+        if (!user) throw new NotFoundException('User not found');
+        // update with the new key
+        await manager.user.update({
+          where: { id: userId, deletedAt: null },
+          data: { avatarKey: key },
+        });
+        if (user.avatarKey) {
+          await manager.avatarCleanupTask.upsert({
+            where: { objectKey: user.avatarKey },
+            create: { objectKey: user.avatarKey },
+            update: { nextAttemptAt: new Date() },
+          });
+        }
+        // New object is now owned by the user; cancel its recovery task.
+        await manager.avatarCleanupTask.delete({ where: { objectKey: key } });
 
+        return this.logging.audit(
+          {
+            action: 'user.avatar.updated',
+            actor: { type: 'USER', id: userId },
+            target: { type: 'USER', id: userId },
+            payload: { change: user.avatarKey ? 'REPLACED' : 'ADDED' },
+            requestContext: {
+              requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            },
+          },
+          manager,
+        );
+      });
+
+    this.logging.publishCommittedAudit(auditEvent);
     void this.avatarCleanup.processDue();
 
     return {

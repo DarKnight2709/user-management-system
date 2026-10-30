@@ -102,6 +102,18 @@ const organizationInvitationAuditEventSchema = Joi.object({
   requestContext: Joi.object({ requestId: idSchema }).required(),
 });
 
+const userAuditEventSchema = Joi.object({
+  actor: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  target: Joi.object({
+    type: Joi.string().valid('USER').required(),
+    id: idSchema,
+  }).required(),
+  requestContext: Joi.object({ requestId: idSchema }).required(),
+});
+
 const organizationNameSchema = Joi.string().min(1).max(100).required();
 const organizationSlugSchema = Joi.string()
   .pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
@@ -111,6 +123,41 @@ const organizationSlugSchema = Joi.string()
 
 export const auditEventSchema = Joi.alternatives<AuditEventInput>()
   .try(
+    userAuditEventSchema.keys({
+      action: Joi.string().valid('user.profile.updated').required(),
+      payload: Joi.object({
+        changedFields: Joi.array()
+          .items(
+            Joi.string().valid(
+              'username',
+              'email',
+              'firstName',
+              'lastName',
+              'birthDate',
+            ),
+          )
+          .min(1)
+          .unique()
+          .required(),
+      }).required(),
+    }),
+    userAuditEventSchema.keys({
+      action: Joi.string().valid('user.deleted').required(),
+      payload: Joi.object({
+        selfDeletion: Joi.boolean().required(),
+        revokedRefreshTokenCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
+      }).required(),
+    }),
+    userAuditEventSchema.keys({
+      action: Joi.string().valid('user.avatar.updated').required(),
+      payload: Joi.object({
+        change: Joi.string().valid('ADDED', 'REPLACED').required(),
+      }).required(),
+    }),
     organizationMemberRoleAuditEventSchema.keys({
       action: Joi.string()
         .valid('organization.member_role.assigned')

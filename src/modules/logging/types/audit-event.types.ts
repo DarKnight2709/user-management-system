@@ -2,6 +2,14 @@ export type AuditRequestContext = {
   requestId: string;
 };
 
+type UserAuditActor = { type: 'USER'; id: string };
+
+type UserAuditEvent = {
+  actor: UserAuditActor;
+  target: { type: 'USER'; id: string };
+  requestContext: AuditRequestContext;
+};
+
 type OrganizationMemberRoleAuditEvent = {
   actor: {
     type: 'USER';
@@ -83,6 +91,22 @@ type OrganizationInvitationAuditEvent = {
 };
 
 export type AuditEventInput =
+  | (UserAuditEvent & {
+      action: 'user.profile.updated';
+      payload: {
+        changedFields: (
+          'username' | 'email' | 'firstName' | 'lastName' | 'birthDate'
+        )[];
+      };
+    })
+  | (UserAuditEvent & {
+      action: 'user.deleted';
+      payload: { selfDeletion: boolean; revokedRefreshTokenCount: number };
+    })
+  | (UserAuditEvent & {
+      action: 'user.avatar.updated';
+      payload: { change: 'ADDED' | 'REPLACED' };
+    })
   | (OrganizationMemberRoleAuditEvent & {
       action: 'organization.member_role.assigned';
     })
