@@ -11,7 +11,11 @@ import { assertValidPagination } from '@/common/utils/pagination.util.js';
 import { requestContext } from '@/core/logging/request-context.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import type { ListAuditEventsQueryDto } from './dto/list-audit-events-query.dto.js';
+import type {
+  ListAuditEventsQueryDto,
+  ListOrganizationAuditEventsQueryDto,
+  ListPlatformAuditEventsQueryDto,
+} from './dto/list-audit-events-query.dto.js';
 
 const currentRequestId = () =>
   requestContext.getStore()?.requestId ?? randomUUID();
@@ -24,10 +28,7 @@ export class AuditLogsService {
     private readonly logging: LoggingService,
   ) {}
 
-  async listPlatform(
-    actorId: string,
-    query: ListAuditEventsQueryDto & { organizationId?: string },
-  ) {
+  async listPlatform(actorId: string, query: ListPlatformAuditEventsQueryDto) {
     assertValidPagination(query.page, query.limit);
     const requestId = currentRequestId();
     const result = await this.prisma.serializableTransaction(
@@ -91,7 +92,7 @@ export class AuditLogsService {
   async listOrganization(
     actorId: string,
     organizationId: string,
-    query: ListAuditEventsQueryDto,
+    query: ListOrganizationAuditEventsQueryDto,
   ) {
     assertValidPagination(query.page, query.limit);
     const requestId = currentRequestId();

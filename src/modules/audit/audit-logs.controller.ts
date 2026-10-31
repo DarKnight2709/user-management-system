@@ -13,7 +13,7 @@ import { RequirePlatformPermissions } from '@/common/decorators/require-platform
 import { UserRateLimit } from '@/common/decorators/user-rate-limit.decorator.js';
 import { AuditLogsService } from './audit-logs.service.js';
 import {
-  ListAuditEventsQueryDto,
+  ListOrganizationAuditEventsQueryDto,
   ListPlatformAuditEventsQueryDto,
 } from './dto/list-audit-events-query.dto.js';
 
@@ -46,7 +46,7 @@ export class AuditLogsController {
   listOrganization(
     @CurrentUser('id') actorId: string,
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
-    @Query() query: ListAuditEventsQueryDto,
+    @Query() query: ListOrganizationAuditEventsQueryDto,
   ) {
     return this.auditLogs.listOrganization(actorId, organizationId, query);
   }

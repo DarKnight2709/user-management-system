@@ -231,6 +231,8 @@ organization owner or a built-in ADMIN with
 organization results are always scoped to the route organization. Both routes
 are paginated, support bounded filters, disable HTTP caching, and record
 successful reads as `audit.log.viewed` events.
+The organization action filter includes only `audit.log.viewed` and
+organization events; profile/account events remain available in platform audit.
 
 Fill the empty database and storage fields with your configured credentials.
 Generate each JWT secret separately using this command (run it twice):
