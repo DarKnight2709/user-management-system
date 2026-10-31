@@ -41,14 +41,14 @@ jobs:
         run: |
           echo "${{ secrets.ENV_PRODUCTION }}" > .env
 
-      # 2. Copy docker-compose.prod.yml và .env lên VPS
+      # 2. Copy Compose and observability configuration to the VPS
       - name: Copy deployment files to VPS
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: 'docker-compose.prod.yml,.env,docker/minio/avatars-policy.json'
+          source: 'docker-compose.prod.yml,.env,docker/minio/avatars-policy.json,alloy/config.alloy,loki/loki-config.yaml,grafana/provisioning'
           target: '~/app'
 
       # 3. Thực thi kéo Image mới, Migrate DB, Up container và Dọn rác
@@ -64,8 +64,8 @@ jobs:
 
             cd ~/app
 
-            # Kéo image backend mới nhất về VPS
-            docker compose -f docker-compose.prod.yml pull backend
+            # Pull backend and centralized logging images
+            docker compose -f docker-compose.prod.yml pull backend loki alloy grafana
 
             # Chạy Prisma migration bằng temporary container
             docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
