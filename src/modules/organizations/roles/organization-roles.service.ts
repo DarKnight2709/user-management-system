@@ -329,7 +329,7 @@ export class OrganizationRolesService {
   async listForActor(
     actorId: string,
     organizationId: string,
-    { page, limit, search }: ListOrganizationRolesQueryDto,
+    { page, limit, search, type, permissionId }: ListOrganizationRolesQueryDto,
   ) {
     assertValidPagination(page, limit);
     return this.prisma.serializableTransaction(async (manager) => {
@@ -341,7 +341,20 @@ export class OrganizationRolesService {
         name: {
           not: 'OWNER',
           ...(search ? { contains: search, mode: 'insensitive' } : {}),
+          ...(type === 'BUILT_IN' ? { in: ['ADMIN', 'MEMBER'] } : {}),
+          ...(type === 'CUSTOM' ? { notIn: ['OWNER', 'ADMIN', 'MEMBER'] } : {}),
         },
+        ...(permissionId
+          ? {
+              rolePermissions: {
+                some: {
+                  permissionId,
+                  deletedAt: null,
+                  permission: { deletedAt: null, OR: catalogFilter },
+                },
+              },
+            }
+          : {}),
       };
       const [roles, total] = await Promise.all([
         manager.role.findMany({
