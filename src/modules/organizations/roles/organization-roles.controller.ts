@@ -13,10 +13,10 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { RequireOrganizationPermissions } from '@/common/decorators/require-organization-permissions.decorator.js';
-import { ListOrganizationsQueryDto } from '../dto/list-organizations-query.dto.js';
 import { OrganizationRolesService } from './organization-roles.service.js';
 import { CreateOrganizationRoleDto } from './dto/create-organization-role.dto.js';
 import { UpdateOrganizationRoleDto } from './dto/update-organization-role.dto.js';
+import { ListOrganizationRolesQueryDto } from './dto/list-organization-roles-query.dto.js';
 
 @ApiTags('Organization Roles')
 @ApiBearerAuth()
@@ -83,7 +83,7 @@ export class OrganizationRolesController {
   list(
     @CurrentUser('id') actorId: string,
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
-    @Query() query: ListOrganizationsQueryDto,
+    @Query() query: ListOrganizationRolesQueryDto,
   ) {
     return this.roles.listForActor(actorId, organizationId, query);
   }

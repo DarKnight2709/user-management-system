@@ -10,6 +10,7 @@ import { Prisma } from '@/generated/prisma/client.js';
 import { validateSync } from 'class-validator';
 import { CreateOrganizationRoleDto } from './dto/create-organization-role.dto.js';
 import { UpdateOrganizationRoleDto } from './dto/update-organization-role.dto.js';
+import { ListOrganizationRolesQueryDto } from './dto/list-organization-roles-query.dto.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { assertValidPagination } from '@/common/utils/pagination.util.js';
@@ -328,16 +329,19 @@ export class OrganizationRolesService {
   async listForActor(
     actorId: string,
     organizationId: string,
-    { page = 1, limit = 20 }: { page?: number; limit?: number },
+    { page, limit, search }: ListOrganizationRolesQueryDto,
   ) {
     assertValidPagination(page, limit);
     return this.prisma.serializableTransaction(async (manager) => {
       await this.authorize(manager, actorId, organizationId);
-      const where = {
+      const where: Prisma.RoleWhereInput = {
         organizationId,
         isSystem: false,
         deletedAt: null,
-        name: { not: 'OWNER' },
+        name: {
+          not: 'OWNER',
+          ...(search ? { contains: search, mode: 'insensitive' } : {}),
+        },
       };
       const [roles, total] = await Promise.all([
         manager.role.findMany({
