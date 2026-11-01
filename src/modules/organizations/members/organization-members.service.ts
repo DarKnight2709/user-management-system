@@ -11,6 +11,7 @@ import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { requestContext } from '@/core/logging/request-context.js';
 import { randomUUID } from 'node:crypto';
+import type { Prisma } from '@/generated/prisma/client.js';
 
 const currentRequestId = () =>
   requestContext.getStore()?.requestId ?? randomUUID();
@@ -193,11 +194,15 @@ export class OrganizationMembersService {
     organizationId,
     page = 1,
     limit = 20,
+    search,
+    roleId,
   }: {
     actorId: string;
     organizationId: string;
     page?: number;
     limit?: number;
+    search?: string;
+    roleId?: string;
   }) {
     assertValidPagination(page, limit);
     return this.prisma.serializableTransaction(async (manager) => {
@@ -217,12 +222,38 @@ export class OrganizationMembersService {
         where: { id: organizationId, deletedAt: null, isActive: true },
         select: { ownerId: true },
       });
-      const where = {
+      const where: Prisma.OrganizationMemberWhereInput = {
         organizationId,
         status: 'ACTIVE' as const,
         deletedAt: null,
         user: { deletedAt: null },
       };
+      const searchTerms = search?.trim().split(/\s+/).filter(Boolean) ?? [];
+      if (searchTerms.length > 0) {
+        where.AND = searchTerms.map((term) => ({
+          user: {
+            OR: [
+              { username: { contains: term, mode: 'insensitive' } },
+              { firstName: { contains: term, mode: 'insensitive' } },
+              { lastName: { contains: term, mode: 'insensitive' } },
+            ],
+          },
+        }));
+      }
+      if (roleId) {
+        where.memberRoles = {
+          some: {
+            roleId,
+            deletedAt: null,
+            role: {
+              organizationId,
+              isSystem: false,
+              deletedAt: null,
+              name: { not: 'OWNER' },
+            },
+          },
+        };
+      }
       const [memberships, total] = await Promise.all([
         manager.organizationMember.findMany({
           where,

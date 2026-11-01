@@ -61,6 +61,8 @@ export class OrganizationMembersController {
       organizationId,
       page: query.page,
       limit: query.limit,
+      search: query.search,
+      roleId: query.roleId,
     });
   }
 }
