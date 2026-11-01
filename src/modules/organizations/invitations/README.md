@@ -17,7 +17,7 @@ authorization inside serializable transactions. Platform roles grant no bypass.
 | Method | Route                                                             | Body / behavior                                                                        |
 | ------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | POST   | `/organizations/:organizationId/invitations`                      | `{ "email": "member@example.com" }`; creates a 7-day MEMBER-only invitation            |
-| GET    | `/organizations/:organizationId/invitations?page=1&limit=20`      | Paginated metadata; no token hashes or links                                           |
+| GET    | `/organizations/:organizationId/invitations?page=1&limit=20&email=member%40example.com&status=PENDING` | Paginated metadata; optional partial email and effective status filters; no token hashes or links |
 | POST   | `/organizations/:organizationId/invitations/:invitationId/resend` | Empty body; 60-second cooldown from initial request and each resend, maximum 5 resends |
 | POST   | `/organizations/:organizationId/invitations/:invitationId/link`   | Copy the same link; does not email, rotate the token, reset cooldown, or extend expiry |
 | DELETE | `/organizations/:organizationId/invitations/:invitationId`        | Revoke; repeat revoke returns 204; accepted invitations cannot be revoked              |

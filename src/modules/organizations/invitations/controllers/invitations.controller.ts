@@ -18,7 +18,7 @@ import {
   CreateInvitationDto,
 } from '../dto/invitation.dto.js';
 import { InvitationsService } from '../services/invitations.service.js';
-import { ListOrganizationsQueryDto } from '../../dto/list-organizations-query.dto.js';
+import { ListInvitationsQueryDto } from '../dto/list-invitations-query.dto.js';
 import { UserRateLimit } from '@/common/decorators/user-rate-limit.decorator.js';
 import { IpRateLimit } from '@/common/decorators/ip-rate-limit.decorator.js';
 
@@ -54,7 +54,7 @@ export class InvitationsController {
   list(
     @CurrentUser('id') actor: string,
     @Param('organizationId', ParseUUIDPipe) org: string,
-    @Query() query: ListOrganizationsQueryDto,
+    @Query() query: ListInvitationsQueryDto,
   ) {
     return this.invitations.list(actor, org, query);
   }
