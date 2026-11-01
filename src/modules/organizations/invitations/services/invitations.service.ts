@@ -19,7 +19,7 @@ import { PermissionsService } from '@/common/services/permissions.service.js';
 import { InvitationLinksService } from './invitation-links.service.js';
 import { InvitationEmailService } from './invitation-email.service.js';
 import { CreateInvitationDto } from '../dto/invitation.dto.js';
-import { ListOrganizationsQueryDto } from '../../dto/list-organizations-query.dto.js';
+import { ListInvitationsQueryDto } from '../dto/list-invitations-query.dto.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { requestContext } from '@/core/logging/request-context.js';
 
@@ -363,12 +363,32 @@ export class InvitationsService {
   async list(
     actorId: string,
     organizationId: string,
-    { page = 1, limit = 20 }: Partial<ListOrganizationsQueryDto>,
+    {
+      page = 1,
+      limit = 20,
+      email,
+      status,
+    }: Partial<ListInvitationsQueryDto>,
   ) {
     assertValidPagination(page, limit);
     return this.prisma.serializableTransaction(async (manager) => {
       await this.authorize(manager, actorId, organizationId);
-      const where = { organizationId };
+      const now = new Date();
+      const where: Prisma.OrganizationInvitationWhereInput = {
+        organizationId,
+      };
+      if (email) where.email = { contains: email, mode: 'insensitive' };
+      if (status === 'EXPIRED') {
+        where.OR = [
+          { status: 'EXPIRED' },
+          { status: 'PENDING', expiresAt: { lte: now } },
+        ];
+      } else if (status === 'PENDING') {
+        where.status = 'PENDING';
+        where.expiresAt = { gt: now };
+      } else if (status) {
+        where.status = status;
+      }
       const [records, total] = await Promise.all([
         manager.organizationInvitation.findMany({
           where,
@@ -383,7 +403,7 @@ export class InvitationsService {
         ...record,
         role: 'MEMBER',
         status:
-          record.status === 'PENDING' && record.expiresAt <= new Date()
+          record.status === 'PENDING' && record.expiresAt <= now
             ? 'EXPIRED'
             : record.status,
       }));
