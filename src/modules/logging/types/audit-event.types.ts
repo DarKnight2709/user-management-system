@@ -166,6 +166,13 @@ export type AuditEventInput =
       payload: { before: { name: string }; after: { name: string } };
     })
   | (OrganizationAuditEvent & {
+      action: 'organization.status.changed';
+      payload: {
+        before: 'ACTIVE' | 'SUSPENDED';
+        after: 'ACTIVE' | 'SUSPENDED';
+      };
+    })
+  | (OrganizationAuditEvent & {
       action: 'organization.deleted';
       payload: {
         name: string;

@@ -309,6 +309,13 @@ export const auditEventSchema = Joi.alternatives<AuditEventInput>()
       }).required(),
     }),
     organizationAuditEventSchema.keys({
+      action: Joi.string().valid('organization.status.changed').required(),
+      payload: Joi.object({
+        before: Joi.string().valid('ACTIVE', 'SUSPENDED').required(),
+        after: Joi.string().valid('ACTIVE', 'SUSPENDED').required(),
+      }).required(),
+    }),
+    organizationAuditEventSchema.keys({
       action: Joi.string().valid('organization.deleted').required(),
       payload: Joi.object({
         name: organizationNameSchema,
