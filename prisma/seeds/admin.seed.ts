@@ -56,6 +56,16 @@ const platformPermissions = [
   },
   {
     resource: 'ORGANIZATION',
+    action: 'read',
+    description: 'Read organization information',
+  },
+  {
+    resource: 'ORGANIZATION',
+    action: 'update',
+    description: 'Update organization settings',
+  },
+  {
+    resource: 'ORGANIZATION',
     action: 'delete',
     description: 'Delete organizations across the application',
   },

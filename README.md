@@ -352,7 +352,8 @@ npm run prisma:seed
 ```
 
 The command runs `prisma/seed.ts` through `tsx`, using the PostgreSQL adapter.
-It creates the `USER:read`, `USER:delete`, and `ORGANIZATION:delete` permissions,
+It creates the `USER:read`, `USER:delete`, `ORGANIZATION:read`,
+`ORGANIZATION:update`, `ORGANIZATION:delete`, and `AUDIT_LOG:read` permissions,
 the global `SUPER_ADMIN` role (`isSystem = true`, `organizationId = null`), their
 permission links, and the admin's `UserPlatformRole` assignment in one transaction.
 The password is stored as a bcrypt hash. No system organization is created.
@@ -439,6 +440,27 @@ Authorization resolves the caller's active memberships and relevant grants in
 bulk before querying the page. Its work grows with the caller's memberships;
 large-membership optimization remains future work. Offset pages can shift
 between requests as organizations or access change.
+
+### Platform admin organization management
+
+`GET /admin/organizations?page=1&limit=20&search=acme&status=ACTIVE` lists
+organizations across the platform for callers with the system-level
+`ORGANIZATION:read` permission. Search matches name or slug. `status` accepts
+`ACTIVE`, `SUSPENDED`, or `DELETED`; when omitted, all statuses are included.
+Rows include the organization name, slug, owner summary, lifecycle timestamps,
+and computed status. The service rechecks the active actor and platform grant
+inside the read transaction; organization-scoped grants do not authorize this
+route.
+
+`PATCH /admin/organizations/:organizationId/status` accepts
+`{ "status": "SUSPENDED" }` or `{ "status": "ACTIVE" }` and requires the
+system-level `ORGANIZATION:update` permission. Suspending blocks organization
+operations that require an active organization, including invitation acceptance.
+It retains organization data and membership history. Deleted organizations
+cannot be restored through this endpoint; restoration is a separate operation.
+Status changes are recorded as audit events. Existing SUPER_ADMIN installations
+must rerun `npm run prisma:seed` to receive the new platform grants; no migration
+is needed because this feature adds no database columns or tables.
 
 `PATCH /organizations/:organizationId` accepts `{ "name": "New Team Name" }`
 and returns 200 with updated organization details. The name is required, trimmed,

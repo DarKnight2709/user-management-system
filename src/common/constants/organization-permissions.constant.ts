@@ -8,12 +8,12 @@ export const organizationPermissions = [
   {
     resource: 'ORGANIZATION',
     action: 'read',
-    description: 'View organization details',
+    description: 'Read organization information',
   },
   {
     resource: 'ORGANIZATION',
     action: 'update',
-    description: 'Update organization details',
+    description: 'Update organization settings',
   },
   {
     resource: 'ORGANIZATION_MEMBER',

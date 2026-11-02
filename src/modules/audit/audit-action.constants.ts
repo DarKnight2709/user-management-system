@@ -9,6 +9,7 @@ export const ORGANIZATION_AUDIT_ACTIONS = [
   'organization.role.deleted',
   'organization.created',
   'organization.updated',
+  'organization.status.changed',
   'organization.deleted',
   'organization.ownership.transferred',
   'organization.member.removed',
