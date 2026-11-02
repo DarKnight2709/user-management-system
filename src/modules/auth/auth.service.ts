@@ -69,6 +69,9 @@ export class AuthService {
       async (manager) => {
         const activeUser = await manager.user.findUnique({
           where: { id: user.id, deletedAt: null },
+          select: {
+            id: true,
+          },
         });
         if (!activeUser) throw new UnauthorizedException('Invalid credentials');
         return this.generateRefreshToken(
@@ -233,7 +236,21 @@ export class AuthService {
         async (manager) => {
           const tokenEntity = await manager.refreshToken.findUnique({
             where: { id: jti },
-            include: { user: true },
+            select: {
+              userId: true,
+              refreshTokenHash: true,
+              revokedAt: true,
+              familyId: true,
+              expiresAt: true,
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                  email: true,
+                  deletedAt: true,
+                },
+              },
+            },
           });
 
           if (
@@ -499,7 +516,7 @@ export class AuthService {
   }
 
   private async generateRefreshToken(
-    user: RequestUser,
+    user: { id: string },
     ipAddress?: string,
     userAgent?: string,
     manager?: Prisma.TransactionClient,

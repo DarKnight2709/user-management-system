@@ -89,12 +89,18 @@ export class UsersService {
     };
   }
 
-  async findOneByEmail(email: string): Promise<User | null> {
+  async findOneByEmail(email: string) {
     const user = await this.prismaService.user.findUnique({
       where: { email: email.trim().toLowerCase(), deletedAt: null },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        hashedPassword: true,
+      },
     });
     if (!user) return null;
-    return this.toUserResponse(user);
+    return user;
   }
 
   /** Internal active-user lookup for JWT validation and avatar upload. */
