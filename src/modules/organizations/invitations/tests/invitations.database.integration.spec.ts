@@ -43,6 +43,7 @@ describe.runIf(runDatabaseTests)('Invitations database integration', () => {
       },
     } as unknown as PrismaService;
     const permissions = {
+      assertActiveActor: vi.fn().mockResolvedValue(undefined),
       hasOrganizationPermissions: vi.fn().mockResolvedValue(true),
     };
     const logging = {

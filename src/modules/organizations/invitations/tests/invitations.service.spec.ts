@@ -88,6 +88,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     publishCommittedAudit: vi.fn(),
   };
   const permissions = {
+    assertActiveActor: vi.fn().mockResolvedValue(undefined),
     hasOrganizationPermissions: vi.fn().mockResolvedValue(true),
   };
   const email = {
