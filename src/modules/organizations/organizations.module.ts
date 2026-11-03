@@ -6,7 +6,7 @@ import { OrganizationMembersService } from './members/organization-members.servi
 import {
   InvitationsController,
   InvitationAcceptanceController,
-} from './invitations/controllers/invitations.controller.js';
+} from './invitations/invitations.controller.js';
 import { InvitationsService } from './invitations/services/invitations.service.js';
 import { InvitationLinksService } from './invitations/services/invitation-links.service.js';
 import { InvitationEmailService } from './invitations/services/invitation-email.service.js';
