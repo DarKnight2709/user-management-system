@@ -95,11 +95,16 @@ describe('Invitation acceptance token verification', () => {
         operation: (client: Prisma.TransactionClient) => Promise<unknown>,
       ) => operation(manager as unknown as Prisma.TransactionClient),
     } as unknown as PrismaService;
+    const audit = vi.fn().mockResolvedValue({ id: 'audit' });
     const service = new InvitationsService(
       prisma,
       {} as PermissionsService,
       currentLinks,
       {} as InvitationEmailService,
+      {
+        audit,
+        publishCommittedAudit: vi.fn(),
+      } as unknown as LoggingService,
     );
     return { service, token, manager };
   }
