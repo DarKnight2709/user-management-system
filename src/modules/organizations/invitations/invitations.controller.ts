@@ -16,9 +16,9 @@ import { RequireOrganizationPermissions } from '@/common/decorators/require-orga
 import {
   AcceptInvitationDto,
   CreateInvitationDto,
-} from '../dto/invitation.dto.js';
-import { InvitationsService } from '../services/invitations.service.js';
-import { ListInvitationsQueryDto } from '../dto/list-invitations-query.dto.js';
+} from './dto/invitation.dto.js';
+import { InvitationsService } from './services/invitations.service.js';
+import { ListInvitationsQueryDto } from './dto/list-invitations-query.dto.js';
 import { UserRateLimit } from '@/common/decorators/user-rate-limit.decorator.js';
 import { IpRateLimit } from '@/common/decorators/ip-rate-limit.decorator.js';
 

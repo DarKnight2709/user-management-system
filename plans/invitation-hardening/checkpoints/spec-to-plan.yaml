@@ -1,0 +1,19 @@
+requirements:
+  - id: REQ-001
+    description: Verify authenticated invitation lifecycle behavior.
+    plan_items: [P1.1]
+  - id: REQ-002
+    description: Verify permission and organization isolation.
+    plan_items: [P1.2]
+  - id: REQ-003
+    description: Verify serializable invitation lifecycle correctness.
+    plan_items: [P2.1, P2.2, P2.3]
+  - id: REQ-004
+    description: Verify queue and worker reliability.
+    plan_items: [P3.1, P3.2]
+  - id: REQ-005
+    description: Verify SMTP delivery and safe diagnostics.
+    plan_items: [P4.1]
+  - id: REQ-006
+    description: Verify database migration invariants.
+    plan_items: [P5.1]

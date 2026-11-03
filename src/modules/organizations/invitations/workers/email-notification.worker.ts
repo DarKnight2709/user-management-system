@@ -1,12 +1,17 @@
 import { type OnModuleDestroy } from '@nestjs/common';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job, UnrecoverableError, type Worker } from 'bullmq';
+import { UnrecoverableError, type Job, type Worker } from 'bullmq';
 import { EmailJobNames } from '@/common/enums/email-job-names.enum.js';
 import { INVITATION_EMAIL_QUEUE } from '../constants/email-queue.constant.js';
 import type { SendInvitationJobData } from '../interfaces/send-invitation-job.interface.js';
 import { InvitationDeliveryService } from '../services/invitation-delivery.service.js';
 import { safeEmailErrorDetails } from '../utils/email-error.util.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type JobReference = Pick<SendInvitationJobData, 'invitationId' | 'version'>;
 
 @Processor(INVITATION_EMAIL_QUEUE, { concurrency: 3 })
 export class EmailNotificationWorker
@@ -48,54 +53,25 @@ export class EmailNotificationWorker
       });
       return;
     }
-    const data = job.data as Partial<SendInvitationJobData> | undefined;
-    const invitationId =
-      typeof data?.invitationId === 'string' &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        data.invitationId,
-      )
-        ? data.invitationId
-        : undefined;
-    const version =
-      typeof data?.version === 'number' &&
-      Number.isInteger(data.version) &&
-      data.version > 0
-        ? data.version
-        : undefined;
-    const attempt =
-      Number.isInteger(job.attemptsMade) && job.attemptsMade > 0
-        ? job.attemptsMade
-        : undefined;
-    const maxAttempts =
-      Number.isInteger(job.opts.attempts) && job.opts.attempts! > 0
-        ? job.opts.attempts
-        : undefined;
+    const reference = this.parseJobReference(job.data);
     this.logging.application({
       event: 'email.job_failed',
       queue: INVITATION_EMAIL_QUEUE,
-      ...(invitationId && version ? { invitationId, version } : {}),
-      ...(attempt && maxAttempts ? { attempt, maxAttempts } : {}),
+      ...this.jobReferenceLogFields(reference),
+      ...this.attemptLogFields(job),
     });
   }
 
   @OnWorkerEvent('completed')
   onCompleted(job: Job): void {
-    const data = job.data as Partial<SendInvitationJobData> | undefined;
-    if (
-      typeof data?.invitationId !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        data.invitationId,
-      ) ||
-      !Number.isInteger(data.version) ||
-      data.version! < 1
-    ) {
+    const reference = this.parseJobReference(job.data);
+    if (!reference) {
       return;
     }
     this.logging.application({
       event: 'email.job_completed',
       queue: INVITATION_EMAIL_QUEUE,
-      invitationId: data.invitationId,
-      version: data.version!,
+      ...reference,
     });
   }
 
@@ -107,5 +83,51 @@ export class EmailNotificationWorker
       return;
     }
     await worker.close();
+  }
+
+  private parseJobReference(data: unknown): JobReference | undefined {
+    if (!this.isRecord(data)) {
+      return undefined;
+    }
+
+    const { invitationId, version } = data;
+    if (
+      typeof invitationId !== 'string' ||
+      !UUID_PATTERN.test(invitationId) ||
+      typeof version !== 'number' ||
+      !Number.isInteger(version) ||
+      version < 1
+    ) {
+      return undefined;
+    }
+
+    return { invitationId, version };
+  }
+
+  private jobReferenceLogFields(
+    reference: JobReference | undefined,
+  ): Partial<JobReference> {
+    return reference ?? {};
+  }
+
+  private attemptLogFields(
+    job: Job,
+  ): { attempt?: number; maxAttempts?: number } {
+    const attempt =
+      Number.isInteger(job.attemptsMade) && job.attemptsMade > 0
+        ? job.attemptsMade
+        : undefined;
+    const maxAttempts =
+      typeof job.opts.attempts === 'number' &&
+      Number.isInteger(job.opts.attempts) &&
+      job.opts.attempts > 0
+        ? job.opts.attempts
+        : undefined;
+
+    return attempt && maxAttempts ? { attempt, maxAttempts } : {};
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
   }
 }
