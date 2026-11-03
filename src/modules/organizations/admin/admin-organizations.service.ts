@@ -3,7 +3,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
@@ -65,7 +64,7 @@ export class AdminOrganizationsService {
     assertValidPagination(page, limit);
 
     return this.prisma.serializableTransaction(async (manager) => {
-      await this.authorize(actorId, 'read', manager);
+      await this.authorizePlatformActor(actorId, 'read', manager);
 
       const where: Prisma.OrganizationWhereInput = {
         ...(search
@@ -115,7 +114,7 @@ export class AdminOrganizationsService {
   ) {
     const result = await this.prisma.serializableTransaction(
       async (manager) => {
-        await this.authorize(actorId, 'update', manager);
+        await this.authorizePlatformActor(actorId, 'update', manager);
 
         const current = await manager.organization.findUnique({
           where: { id: organizationId },
@@ -179,16 +178,12 @@ export class AdminOrganizationsService {
     return { ...result.organization, status: getStatus(result.organization) };
   }
 
-  private async authorize(
+  private async authorizePlatformActor(
     actorId: string,
     action: 'read' | 'update',
     manager: Prisma.TransactionClient,
   ) {
-    const actor = await manager.user.findUnique({
-      where: { id: actorId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!actor) throw new UnauthorizedException('Authentication required');
+    await this.permissions.assertActiveActor(actorId, manager);
 
     const allowed = await this.permissions.hasPlatformPermission(
       actorId,

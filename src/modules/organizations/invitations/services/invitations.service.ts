@@ -223,7 +223,7 @@ export class InvitationsService {
     input: ResendInvitationInput,
   ) {
     const { actorId, organizationId, invitationId } = input;
-    await this.authorize(manager, actorId, organizationId);
+    await this.authorizeInvitationActor(manager, actorId, organizationId);
     const invitation = await this.findInvitation(
       manager,
       organizationId,
@@ -275,7 +275,7 @@ export class InvitationsService {
     input: RevokeInvitationInput,
   ) {
     const { actorId, organizationId, invitationId } = input;
-    await this.authorize(manager, actorId, organizationId);
+    await this.authorizeInvitationActor(manager, actorId, organizationId);
     const invitation = await this.findInvitation(
       manager,
       organizationId,
@@ -309,7 +309,7 @@ export class InvitationsService {
     input: CopyInvitationLinkInput,
   ) {
     const { actorId, organizationId, invitationId } = input;
-    await this.authorize(manager, actorId, organizationId);
+    await this.authorizeInvitationActor(manager, actorId, organizationId);
     const invitation = await this.findInvitation(
       manager,
       organizationId,
@@ -338,7 +338,7 @@ export class InvitationsService {
     input: ListInvitationsInput,
   ) {
     const { actorId, organizationId, page, limit } = input;
-    await this.authorize(manager, actorId, organizationId);
+    await this.authorizeInvitationActor(manager, actorId, organizationId);
     const now = new Date();
     const where = this.buildInvitationListFilter(input, now);
     const [records, total] = await Promise.all([
@@ -395,16 +395,12 @@ export class InvitationsService {
     };
   }
 
-  private async authorize(
+  private async authorizeInvitationActor(
     manager: Prisma.TransactionClient,
     actorId: string,
     organizationId: string,
   ) {
-    const actor = await manager.user.findUnique({
-      where: { id: actorId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!actor) throw new UnauthorizedException('Authentication required');
+    await this.permissions.assertActiveActor(actorId, manager);
     if (
       !(await this.permissions.hasOrganizationPermissions(
         actorId,
@@ -511,7 +507,7 @@ export class InvitationsService {
       tokenHash,
     }: CreateInvitationInput,
   ) {
-    await this.authorize(manager, actorId, organizationId);
+    await this.authorizeInvitationActor(manager, actorId, organizationId);
     const outsiderOrPreviousMembership = await this.assertInvitableAccount(
       manager,
       organizationId,
