@@ -11,6 +11,11 @@ import { PrismaService } from '@/core/database/prisma.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { requestContext } from '@/core/logging/request-context.js';
 import { randomUUID } from 'node:crypto';
+import type {
+  OwnerMembership,
+  OwnershipTransaction,
+  TransferOwnershipInput,
+} from './interfaces/organization-ownership.interface.js';
 
 const currentRequestId = () =>
   requestContext.getStore()?.requestId ?? randomUUID();
@@ -27,75 +32,44 @@ export class OrganizationOwnershipService {
     organizationId: string,
     memberId: string,
   ) {
+    const input = { actorId, organizationId, memberId };
     const { result, auditEvent } = await this.prisma.serializableTransaction(
-      async (manager) => {
-        const ownerMembership = await this.authorizeOwner(
-          manager,
-          actorId,
-          organizationId,
-        );
-        const target = await manager.organizationMember.findFirst({
-          where: {
-            id: memberId,
-            organizationId,
-            status: 'ACTIVE',
-            deletedAt: null,
-            user: { deletedAt: null },
-          },
-          select: { userId: true },
-        });
-        if (!target)
-          throw new NotFoundException('Active organization member not found');
-        if (target.userId === actorId)
-          throw new ConflictException(
-            'Choose a different member as the new owner',
-          );
-
-        await this.ensureMemberRole(
-          manager,
-          organizationId,
-          ownerMembership.id,
-        );
-        const organization = await manager.organization.update({
-          where: {
-            id: organizationId,
-            ownerId: actorId,
-            isActive: true,
-            deletedAt: null,
-          },
-          data: { ownerId: target.userId },
-          select: { id: true, ownerId: true },
-        });
-        const auditEvent = await this.logging.audit(
-          {
-            action: 'organization.ownership.transferred',
-            actor: { type: 'USER', id: actorId },
-            target: { type: 'ORGANIZATION', id: organizationId },
-            organizationId,
-            payload: {
-              previousOwnerId: actorId,
-              newOwnerId: target.userId,
-              previousOwnerMembershipId: ownerMembership.id,
-            },
-            requestContext: { requestId: currentRequestId() },
-          },
-          manager,
-        );
-        return {
-          result: { ...organization, previousOwnerId: actorId },
-          auditEvent,
-        };
-      },
+      (manager) => this.transferInTransaction({ manager, input }),
     );
     this.logging.publishCommittedAudit(auditEvent);
     return result;
   }
 
+  private async transferInTransaction({
+    manager,
+    input,
+  }: OwnershipTransaction) {
+    const ownerMembership = await this.authorizeOwner(manager, input);
+    const target = await this.findTarget(manager, input);
+
+    await this.ensureMemberRole(
+      manager,
+      input.organizationId,
+      ownerMembership.id,
+    );
+    const organization = await this.updateOwner(manager, input, target.userId);
+    const auditEvent = await this.auditTransfer(
+      manager,
+      input,
+      target.userId,
+      ownerMembership,
+    );
+
+    return {
+      result: { ...organization, previousOwnerId: input.actorId },
+      auditEvent,
+    };
+  }
+
   private async authorizeOwner(
     manager: Prisma.TransactionClient,
-    actorId: string,
-    organizationId: string,
-  ) {
+    { actorId, organizationId }: TransferOwnershipInput,
+  ): Promise<OwnerMembership> {
     const actor = await manager.user.findUnique({
       where: { id: actorId, deletedAt: null },
       select: { id: true },
@@ -117,6 +91,68 @@ export class OrganizationOwnershipService {
         'Only the active organization owner can transfer ownership',
       );
     return membership;
+  }
+
+  private async findTarget(
+    manager: Prisma.TransactionClient,
+    { actorId, organizationId, memberId }: TransferOwnershipInput,
+  ): Promise<{ userId: string }> {
+    const target = await manager.organizationMember.findFirst({
+      where: {
+        id: memberId,
+        organizationId,
+        status: 'ACTIVE',
+        deletedAt: null,
+        user: { deletedAt: null },
+      },
+      select: { userId: true },
+    });
+    if (!target)
+      throw new NotFoundException('Active organization member not found');
+    if (target.userId === actorId) {
+      throw new ConflictException('Choose a different member as the new owner');
+    }
+    return target;
+  }
+
+  private async updateOwner(
+    manager: Prisma.TransactionClient,
+    { actorId, organizationId }: TransferOwnershipInput,
+    newOwnerId: string,
+  ) {
+    return manager.organization.update({
+      where: {
+        id: organizationId,
+        ownerId: actorId,
+        isActive: true,
+        deletedAt: null,
+      },
+      data: { ownerId: newOwnerId },
+      select: { id: true, ownerId: true },
+    });
+  }
+
+  private auditTransfer(
+    manager: Prisma.TransactionClient,
+    { actorId, organizationId }: TransferOwnershipInput,
+    newOwnerId: string,
+    ownerMembership: OwnerMembership,
+  ) {
+    return this.logging.audit(
+      {
+        action: 'organization.ownership.transferred',
+        actor: { type: 'USER', id: actorId },
+        target: { type: 'ORGANIZATION', id: organizationId },
+        organizationId,
+        payload: {
+          previousOwnerId: actorId,
+          newOwnerId,
+          previousOwnerMembershipId: ownerMembership.id,
+        },
+        requestContext: { requestId: currentRequestId() },
+      },
+      manager,
+    );
   }
 
   private async ensureMemberRole(
