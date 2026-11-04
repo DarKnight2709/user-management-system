@@ -27,7 +27,7 @@ export class AdminOrganizationsController {
     @CurrentUser('id') actorId: string,
     @Query() query: ListAdminOrganizationsQueryDto,
   ) {
-    return this.organizations.listForPlatformActor(actorId, query);
+    return this.organizations.list(actorId, query);
   }
 
   @Patch(':organizationId/status')
@@ -38,7 +38,7 @@ export class AdminOrganizationsController {
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
     @Body() dto: UpdateAdminOrganizationStatusDto,
   ) {
-    return this.organizations.updateStatusForPlatformActor(
+    return this.organizations.updateStatus(
       actorId,
       organizationId,
       dto.status,

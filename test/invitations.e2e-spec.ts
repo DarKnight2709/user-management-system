@@ -2,14 +2,13 @@ import { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
-import { App } from 'supertest/types';
 import { afterAll, beforeAll, describe, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 
 const runE2eTests = process.env.RUN_INVITATION_E2E_TESTS === 'true';
 
 describe.runIf(runE2eTests)('Invitation API (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: INestApplication;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({

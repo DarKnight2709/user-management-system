@@ -19,6 +19,17 @@ export interface EffectiveOrganizationPermission {
 export class PermissionsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async assertActiveActor(
+    actorId: string,
+    manager: Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    const actor = await manager.user.findUnique({
+      where: { id: actorId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!actor) throw new UnauthorizedException('Authentication required');
+  }
+
   async getEffectiveOrganizationPermissions(
     userId: string,
     organizationId: string,

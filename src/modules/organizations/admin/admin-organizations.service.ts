@@ -3,7 +3,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
@@ -17,6 +16,11 @@ import type {
   ListAdminOrganizationsQueryDto,
 } from './dto/list-admin-organizations-query.dto.js';
 import type { ManageableOrganizationStatus } from './dto/update-admin-organization-status.dto.js';
+import type {
+  ListAdminOrganizationsInput,
+  StatusChangedAuditInput,
+  UpdateOrganizationStatusInput,
+} from './interfaces/admin-organizations.interface.js';
 
 const adminOrganizationSelect = {
   id: true,
@@ -37,7 +41,11 @@ const adminOrganizationSelect = {
   },
 } satisfies Prisma.OrganizationSelect;
 
-const getStatus = (organization: {
+type AdminOrganization = Prisma.OrganizationGetPayload<{
+  select: typeof adminOrganizationSelect;
+}>;
+
+const getAdminOrganizationStatus = (organization: {
   isActive: boolean;
   deletedAt: Date | null;
 }): AdminOrganizationStatus =>
@@ -58,125 +66,206 @@ export class AdminOrganizationsService {
     private readonly logging: LoggingService,
   ) {}
 
-  async listForPlatformActor(
+  async list(
     actorId: string,
     { page, limit, search, status }: ListAdminOrganizationsQueryDto,
   ) {
     assertValidPagination(page, limit);
 
-    return this.prisma.serializableTransaction(async (manager) => {
-      await this.authorize(actorId, 'read', manager);
-
-      const where: Prisma.OrganizationWhereInput = {
-        ...(search
-          ? {
-              OR: [
-                { name: { contains: search, mode: 'insensitive' } },
-                { slug: { contains: search, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-        ...(status === 'ACTIVE'
-          ? { deletedAt: null, isActive: true }
-          : status === 'SUSPENDED'
-            ? { deletedAt: null, isActive: false }
-            : status === 'DELETED'
-              ? { deletedAt: { not: null } }
-              : {}),
-      };
-
-      const [organizations, total] = await Promise.all([
-        manager.organization.findMany({
-          where,
-          select: adminOrganizationSelect,
-          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        manager.organization.count({ where }),
-      ]);
-
-      return {
-        items: organizations.map((organization) => ({
-          ...organization,
-          status: getStatus(organization),
-        })),
-        total,
+    return this.prisma.serializableTransaction((manager) =>
+      this.listOrganizationsInTransaction(manager, {
+        actorId,
         page,
         limit,
-      };
-    });
+        search,
+        status,
+      }),
+    );
   }
 
-  async updateStatusForPlatformActor(
+  async updateStatus(
     actorId: string,
     organizationId: string,
     status: ManageableOrganizationStatus,
   ) {
-    const result = await this.prisma.serializableTransaction(
-      async (manager) => {
-        await this.authorize(actorId, 'update', manager);
-
-        const current = await manager.organization.findUnique({
-          where: { id: organizationId },
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            ownerId: true,
-            isActive: true,
-            deletedAt: true,
-            createdAt: true,
-            updatedAt: true,
-            owner: {
-              select: {
-                id: true,
-                username: true,
-                firstName: true,
-                lastName: true,
-              },
-            },
-          },
-        });
-        if (!current) throw new NotFoundException('Organization not found');
-        if (current.deletedAt) {
-          throw new ConflictException(
-            'A deleted organization cannot be reactivated with this operation',
-          );
-        }
-
-        const previousStatus: ManageableOrganizationStatus = current.isActive
-          ? 'ACTIVE'
-          : 'SUSPENDED';
-        if (previousStatus === status) {
-          return { organization: current, auditEvent: null };
-        }
-
-        const updated = await manager.organization.update({
-          where: { id: organizationId, deletedAt: null },
-          data: { isActive: status === 'ACTIVE' },
-          select: adminOrganizationSelect,
-        });
-        const auditEvent = await this.logging.audit(
-          {
-            action: 'organization.status.changed',
-            actor: { type: 'USER', id: actorId },
-            target: { type: 'ORGANIZATION', id: organizationId },
-            organizationId,
-            payload: { before: previousStatus, after: status },
-            requestContext: { requestId: currentRequestId() },
-          },
-          manager,
-        );
-
-        return { organization: updated, auditEvent };
-      },
+    const result = await this.prisma.serializableTransaction((manager) =>
+      this.updateOrganizationStatusInTransaction(manager, {
+        actorId,
+        organizationId,
+        status,
+      }),
     );
 
     if (result.auditEvent)
       this.logging.publishCommittedAudit(result.auditEvent);
 
-    return { ...result.organization, status: getStatus(result.organization) };
+    return this.mapAdminOrganization(result.organization);
+  }
+
+  private buildOrganizationListFilter(
+    search: string | undefined,
+    status: AdminOrganizationStatus | undefined,
+  ): Prisma.OrganizationWhereInput {
+    return {
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { slug: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+      ...(status === 'ACTIVE'
+        ? { deletedAt: null, isActive: true }
+        : status === 'SUSPENDED'
+          ? { deletedAt: null, isActive: false }
+          : status === 'DELETED'
+            ? { deletedAt: { not: null } }
+            : {}),
+    };
+  }
+
+  private async listOrganizationsInTransaction(
+    manager: Prisma.TransactionClient,
+    { actorId, page, limit, search, status }: ListAdminOrganizationsInput,
+  ) {
+    await this.authorize(actorId, 'read', manager);
+
+    const where = this.buildOrganizationListFilter(search, status);
+    const { organizations, total } = await this.findOrganizationPage(
+      manager,
+      { where, page, limit },
+    );
+
+    return {
+      items: organizations.map((organization) =>
+        this.mapAdminOrganization(organization),
+      ),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  private async updateOrganizationStatusInTransaction(
+    manager: Prisma.TransactionClient,
+    { actorId, organizationId, status }: UpdateOrganizationStatusInput,
+  ) {
+    await this.authorize(actorId, 'update', manager);
+
+    const organization = await this.findOrganizationForStatusUpdate(
+      manager,
+      organizationId,
+    );
+    const previousStatus = this.getStatus(organization);
+    if (previousStatus === status) {
+      return { organization, auditEvent: null };
+    }
+
+    const updatedOrganization = await this.updateOrganizationStatus(
+      manager,
+      organizationId,
+      status,
+    );
+    const auditEvent = await this.createStatusChangedAudit(manager, {
+      actorId,
+      organizationId,
+      previousStatus,
+      status,
+    });
+
+    return { organization: updatedOrganization, auditEvent };
+  }
+
+  private async findOrganizationForStatusUpdate(
+    manager: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<AdminOrganization> {
+    const organization = await manager.organization.findUnique({
+      where: { id: organizationId },
+      select: adminOrganizationSelect,
+    });
+    if (!organization) throw new NotFoundException('Organization not found');
+    if (organization.deletedAt) {
+      throw new ConflictException(
+        'A deleted organization cannot be reactivated with this operation',
+      );
+    }
+    return organization;
+  }
+
+  private getStatus(
+    organization: AdminOrganization,
+  ): ManageableOrganizationStatus {
+    return organization.isActive ? 'ACTIVE' : 'SUSPENDED';
+  }
+
+  private updateOrganizationStatus(
+    manager: Prisma.TransactionClient,
+    organizationId: string,
+    status: ManageableOrganizationStatus,
+  ): Promise<AdminOrganization> {
+    return manager.organization.update({
+      where: { id: organizationId, deletedAt: null },
+      data: { isActive: status === 'ACTIVE' },
+      select: adminOrganizationSelect,
+    });
+  }
+
+  private createStatusChangedAudit(
+    manager: Prisma.TransactionClient,
+    {
+      actorId,
+      organizationId,
+      previousStatus,
+      status,
+    }: StatusChangedAuditInput,
+  ) {
+    return this.logging.audit(
+      {
+        action: 'organization.status.changed',
+        actor: { type: 'USER', id: actorId },
+        target: { type: 'ORGANIZATION', id: organizationId },
+        organizationId,
+        payload: { before: previousStatus, after: status },
+        requestContext: { requestId: currentRequestId() },
+      },
+      manager,
+    );
+  }
+
+  private async findOrganizationPage(
+    manager: Prisma.TransactionClient,
+    input: {
+      where: Prisma.OrganizationWhereInput;
+      page: number;
+      limit: number;
+    },
+  ) {
+    const { where, page, limit } = input;
+    const [organizations, total] = await Promise.all([
+      manager.organization.findMany({
+        where,
+        select: adminOrganizationSelect,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      manager.organization.count({ where }),
+    ]);
+
+    return { organizations, total };
+  }
+
+  private mapAdminOrganization(
+    organization: Prisma.OrganizationGetPayload<{
+      select: typeof adminOrganizationSelect;
+    }>,
+  ) {
+    return {
+      ...organization,
+      status: getAdminOrganizationStatus(organization),
+    };
   }
 
   private async authorize(
@@ -184,11 +273,7 @@ export class AdminOrganizationsService {
     action: 'read' | 'update',
     manager: Prisma.TransactionClient,
   ) {
-    const actor = await manager.user.findUnique({
-      where: { id: actorId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!actor) throw new UnauthorizedException('Authentication required');
+    await this.permissions.assertActiveActor(actorId, manager);
 
     const allowed = await this.permissions.hasPlatformPermission(
       actorId,
