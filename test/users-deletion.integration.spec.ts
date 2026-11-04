@@ -2,7 +2,6 @@ import { InvitationsService } from '../src/modules/organizations/invitations/ser
 import { InvitationLinksService } from '../src/modules/organizations/invitations/services/invitation-links.service.js';
 import type { InvitationEmailService } from '../src/modules/organizations/invitations/services/invitation-email.service.js';
 import { OrganizationOwnershipService } from '../src/modules/organizations/ownership/organization-ownership.service.js';
-import { OrganizationOwnershipController } from '../src/modules/organizations/ownership/organization-ownership.controller.js';
 import { MemberRolesController } from '../src/modules/organizations/members/member-roles.controller.js';
 import { MemberRolesService } from '../src/modules/organizations/members/member-roles.service.js';
 import { OrganizationRolesService } from '../src/modules/organizations/roles/organization-roles.service.js';
