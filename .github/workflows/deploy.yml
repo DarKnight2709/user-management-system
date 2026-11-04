@@ -24,6 +24,9 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Generate Prisma Client
+        run: npx prisma generate --config prisma7.config.ts
+
       - name: Run build
         run: npm run build
 
