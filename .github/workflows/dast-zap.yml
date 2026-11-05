@@ -1,0 +1,100 @@
+name: DAST (OWASP ZAP baseline)
+
+# Starts the backend image inside the runner with throw-away PostgreSQL and
+# Redis services, waits for /health/ready, then runs a passive ZAP baseline
+# scan against it. It never touches a deployed environment.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  zap-baseline:
+    name: ZAP baseline scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ums_dast
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d ums_dast"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Throw-away values for a container that lives only for this job.
+      APP_ENV_ARGS: >-
+        -e NODE_ENV=production
+        -e PORT=3000
+        -e DATABASE_URL=postgresql://test:test@localhost:5432/ums_dast
+        -e JWT_ACCESS_TOKEN_SECRET=dast-jwt-access-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG
+        -e JWT_REFRESH_TOKEN_SECRET=dast-jwt-refresh-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG
+        -e INVITATION_TOKEN_SECRET=dast-invitation-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG
+        -e S3_ENDPOINT=http://localhost:9000
+        -e S3_BUCKET=ums-dast
+        -e S3_ACCESS_KEY=dast-access
+        -e S3_SECRET_KEY=dast-secret
+        -e S3_PUBLIC_URL=http://localhost:9000
+        -e FRONTEND_URL=http://localhost:3000
+        -e REDIS_HOST=localhost
+        -e SMTP_HOST=localhost
+        -e SMTP_FROM=dast@example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -t ums-backend:dast .
+
+      - name: Apply database migrations
+        run: docker run --rm --network host $APP_ENV_ARGS ums-backend:dast npx prisma migrate deploy --config prisma7.config.ts
+
+      - name: Start backend
+        run: docker run -d --name ums-backend --network host $APP_ENV_ARGS ums-backend:dast
+
+      # Uses the image HEALTHCHECK, which probes /health/ready.
+      - name: Wait for backend to become healthy
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' ums-backend)
+            echo "backend health: $status ($i/30)"
+            [ "$status" = "healthy" ] && exit 0
+            sleep 5
+          done
+          docker logs --tail 80 ums-backend
+          exit 1
+
+      # Passive baseline scan: spiders the target and reports findings without
+      # attacking it. fail_action is false until the findings are triaged.
+      - name: Run ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: http://localhost:3000
+          fail_action: false
+          allow_issue_writing: false
+          artifact_name: zap-baseline-report
+
+      - name: Show backend logs on failure
+        if: failure()
+        run: docker logs --tail 80 ums-backend

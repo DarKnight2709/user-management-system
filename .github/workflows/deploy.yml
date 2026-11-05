@@ -1,11 +1,131 @@
 name: Build, Migrate and Deploy Backend
 
 on:
+  pull_request:
+    branches: ['main']
   push:
     branches: ['main']
 
+permissions:
+  contents: read
+
 jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ums_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d ums_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      JWT_ACCESS_TOKEN_SECRET: 'test-jwt-access-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
+      JWT_REFRESH_TOKEN_SECRET: 'test-jwt-refresh-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
+      INVITATION_TOKEN_SECRET: 'test-invitation-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
+      S3_ENDPOINT: http://localhost:9000
+      S3_BUCKET: ums-test
+      S3_ACCESS_KEY: test-access
+      S3_SECRET_KEY: test-secret
+      S3_PUBLIC_URL: http://localhost:9000
+      FRONTEND_URL: http://localhost:3000
+      REDIS_HOST: localhost
+      SMTP_HOST: localhost
+      SMTP_FROM: test@example.com
+      RUN_DATABASE_TESTS: 'true'
+      DATABASE_URL: postgresql://test:test@localhost:5432/ums_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --config prisma7.config.ts
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run build
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  trivy-fs-scan:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: os,library
+          scanners: vuln,misconfig
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan source code
+        run: semgrep scan --config p/typescript --error
+
   build-and-push-backend:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [ci, secret-scan, trivy-fs-scan, semgrep]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -22,14 +142,40 @@ jobs:
           username: DarKnight2709
           password: ${{ secrets.GH_PAT }}
 
-      - name: Build and push Backend Image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build once into the local daemon so it can be scanned before publishing.
+      - name: Build Backend Image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: ghcr.io/darknight2709/ums-backend:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ghcr.io/darknight2709/ums-backend:scan
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      # Rebuild is served from the layer cache populated above.
+      - name: Push Backend Image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ghcr.io/darknight2709/ums-backend:latest
+          cache-from: type=gha
 
   deploy-to-vps:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build-and-push-backend
     runs-on: ubuntu-latest
     steps:
@@ -43,7 +189,7 @@ jobs:
 
       # 2. Copy Compose and observability configuration to the VPS
       - name: Copy deployment files to VPS
-        uses: appleboy/scp-action@master
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
@@ -53,7 +199,7 @@ jobs:
 
       # 3. Thực thi kéo Image mới, Migrate DB, Up container và Dọn rác
       - name: Execute deployment & migration on VPS
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
@@ -76,6 +222,19 @@ jobs:
 
             # Khởi chạy/Cập nhật các service
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # Fail the deploy if the backend does not become healthy (image HEALTHCHECK -> /health/ready).
+            # Note: this reports the failure; it does not roll back to the previous image.
+            for i in $(seq 1 30); do
+              status=$(docker inspect --format '{{.State.Health.Status}}' ums-backend 2>/dev/null || echo missing)
+              echo "backend health: $status ($i/30)"
+              [ "$status" = "healthy" ] && break
+              sleep 5
+            done
+            if [ "$status" != "healthy" ]; then
+              docker logs --tail 50 ums-backend
+              exit 1
+            fi
 
             # Dọn dẹp rác image cũ để giải phóng dung lượng ổ cứng VPS
             docker image prune -f
