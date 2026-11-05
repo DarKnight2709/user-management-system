@@ -46,5 +46,9 @@
   # Khai báo port backend lắng nghe
   EXPOSE 3000
 
+  # Readiness probe (PostgreSQL). The slim image has no curl/wget, so use node.
+  HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health/ready',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+
   # Lệnh chạy ứng dụng
   CMD ["node", "dist/main.js"]

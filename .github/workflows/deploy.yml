@@ -223,5 +223,18 @@ jobs:
             # Khởi chạy/Cập nhật các service
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
+            # Fail the deploy if the backend does not become healthy (image HEALTHCHECK -> /health/ready).
+            # Note: this reports the failure; it does not roll back to the previous image.
+            for i in $(seq 1 30); do
+              status=$(docker inspect --format '{{.State.Health.Status}}' ums-backend 2>/dev/null || echo missing)
+              echo "backend health: $status ($i/30)"
+              [ "$status" = "healthy" ] && break
+              sleep 5
+            done
+            if [ "$status" != "healthy" ]; then
+              docker logs --tail 50 ums-backend
+              exit 1
+            fi
+
             # Dọn dẹp rác image cũ để giải phóng dung lượng ổ cứng VPS
             docker image prune -f
