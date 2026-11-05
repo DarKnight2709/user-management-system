@@ -40,6 +40,19 @@ export const options: Options = {
   },
 };
 
+// Logs unexpected statuses with the error body so failures can be diagnosed.
+function report(
+  label: string,
+  r: { status: number; body: unknown },
+  expected: number,
+): void {
+  if (r.status !== expected) {
+    console.error(
+      `${label} expected ${expected} got ${r.status}: ${String(r.body).slice(0, 300)}`,
+    );
+  }
+}
+
 export function setup(): SetupData {
   return createUsers(USERS);
 }
@@ -55,6 +68,7 @@ export default function (data: SetupData): void {
     user.token,
     'POST /organizations',
   );
+  report('POST /organizations', created, 201);
   const created2xx = check(created, {
     'create organization is 201': (r) => r.status === 201,
   });
@@ -71,12 +85,14 @@ export default function (data: SetupData): void {
     user.token,
     'PATCH /organizations/:id',
   );
+  report('PATCH /organizations/:id', renamed, 200);
   check(renamed, { 'rename organization is 200': (r) => r.status === 200 });
 
   const members = http.get(
     `${BASE_URL}/organizations/${organizationId}/members`,
     authedParams(index, user.token, 'GET /organizations/:id/members'),
   );
+  report('GET /organizations/:id/members', members, 200);
   check(members, { 'member list is 200': (r) => r.status === 200 });
 
   sleep(THINK_TIME_SECONDS);
