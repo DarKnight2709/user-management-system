@@ -26,15 +26,15 @@ jobs:
           --health-retries 5
     env:
       NODE_ENV: test
-      JWT_ACCESS_TOKEN_SECRET: test-access-secret-32-characters-minimum
-      JWT_REFRESH_TOKEN_SECRET: test-refresh-secret-32-characters-minimum
+      JWT_ACCESS_TOKEN_SECRET: 'test-jwt-access-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
+      JWT_REFRESH_TOKEN_SECRET: 'test-jwt-refresh-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
+      INVITATION_TOKEN_SECRET: 'test-invitation-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
       S3_ENDPOINT: http://localhost:9000
       S3_BUCKET: ums-test
       S3_ACCESS_KEY: test-access
       S3_SECRET_KEY: test-secret
       S3_PUBLIC_URL: http://localhost:9000
       FRONTEND_URL: http://localhost:3000
-      INVITATION_TOKEN_SECRET: test-invitation-secret-32-characters-minimum
       REDIS_HOST: localhost
       SMTP_HOST: localhost
       SMTP_FROM: test@example.com
