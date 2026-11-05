@@ -86,10 +86,30 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  trivy-fs-scan:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: os,library
+          scanners: vuln,misconfig
 
   build-and-push-backend:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ci, secret-scan]
+    needs: [ci, secret-scan, trivy-fs-scan]
     runs-on: ubuntu-latest
     permissions:
       contents: read
