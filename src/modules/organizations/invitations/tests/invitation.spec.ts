@@ -192,15 +192,21 @@ describe('Invitation input and links', () => {
     expect(url.hash).toBe(`#token=${links.token('first')}`);
   });
   it('fails explicitly without token or frontend configuration', () => {
-    expect(() =>
-      new InvitationLinksService(new ConfigService()).token('id'),
-    ).toThrow();
-    const config = {
-      get: (key: string) =>
-        key === 'INVITATION_TOKEN_SECRET' ? 'a'.repeat(64) : undefined,
-    } as ConfigService;
+    const emptyConfig = {
+      get: vi.fn(() => undefined),
+    } as unknown as ConfigService;
 
-    expect(() => new InvitationLinksService(config).link('id')).toThrow();
+    expect(() => new InvitationLinksService(emptyConfig).token('id')).toThrow();
+
+    const tokenOnlyConfig = {
+      get: vi.fn((key: string) =>
+        key === 'INVITATION_TOKEN_SECRET' ? 'a'.repeat(64) : undefined,
+      ),
+    } as unknown as ConfigService;
+
+    expect(() =>
+      new InvitationLinksService(tokenOnlyConfig).link('id'),
+    ).toThrow();
   });
 });
 
