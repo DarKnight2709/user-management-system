@@ -8,8 +8,7 @@ import { PrismaService } from '@/core/database/prisma.service.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { organizationPermissions } from '@/common/constants/organization-permissions.constant.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import { requestContext } from '@/core/logging/request-context.js';
-import { randomUUID } from 'node:crypto';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 import type {
   ChangeMemberRoleInput,
   MemberRoleContext,
@@ -52,7 +51,7 @@ export class MemberRolesService {
   }
 
   private async assignInTransaction({ manager, input }: MemberRoleTransaction) {
-    await this.authorizeAssign(manager, input);
+    await this.authorizeRoleChange(manager, input, 'assign');
     const context = await this.loadContext(manager, input);
     await this.assertDelegationAllowed(manager, input, context.role);
     const assigned = await this.assign(manager, input);
@@ -66,7 +65,7 @@ export class MemberRolesService {
   }
 
   private async revokeInTransaction({ manager, input }: MemberRoleTransaction) {
-    await this.authorizeRevoke(manager, input);
+    await this.authorizeRoleChange(manager, input, 'revoke');
     const context = await this.loadContext(manager, input);
     await this.assertDelegationAllowed(manager, input, context.role);
     const revoked = await manager.memberRole.updateMany({
@@ -86,32 +85,16 @@ export class MemberRolesService {
     );
   }
 
-  private async authorizeAssign(
+  private async authorizeRoleChange(
     manager: Prisma.TransactionClient,
     { actorId, organizationId }: ChangeMemberRoleInput,
+    action: 'assign' | 'revoke',
   ): Promise<void> {
     await this.permissions.assertActiveActor(actorId, manager);
     const allowed = await this.permissions.hasOrganizationPermissions(
       actorId,
       organizationId,
-      [{ resource: 'ORGANIZATION_ROLE', action: 'assign' }],
-      manager,
-    );
-    if (!allowed)
-      throw new ForbiddenException(
-        'Organization role assignment access denied',
-      );
-  }
-
-  private async authorizeRevoke(
-    manager: Prisma.TransactionClient,
-    { actorId, organizationId }: ChangeMemberRoleInput,
-  ): Promise<void> {
-    await this.permissions.assertActiveActor(actorId, manager);
-    const allowed = await this.permissions.hasOrganizationPermissions(
-      actorId,
-      organizationId,
-      [{ resource: 'ORGANIZATION_ROLE', action: 'revoke' }],
+      [{ resource: 'ORGANIZATION_ROLE', action }],
       manager,
     );
     if (!allowed)
@@ -271,9 +254,7 @@ export class MemberRolesService {
           roleId: role.id,
           roleName: role.name,
         },
-        requestContext: {
-          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
-        },
+        requestContext: { requestId: currentRequestId() },
       },
       manager,
     );

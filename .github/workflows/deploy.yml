@@ -27,6 +27,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       NODE_ENV: test
       JWT_ACCESS_TOKEN_SECRET: 'test-jwt-access-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
@@ -42,6 +51,12 @@ jobs:
       SMTP_HOST: localhost
       SMTP_FROM: test@example.com
       RUN_DATABASE_TESTS: 'true'
+      RUN_ADMIN_ORGANIZATION_E2E_TESTS: 'true'
+      RUN_INVITATION_E2E_TESTS: 'true'
+      RUN_ORGANIZATION_MEMBERS_E2E_TESTS: 'true'
+      RUN_ORGANIZATION_OWNERSHIP_E2E_TESTS: 'true'
+      RUN_ORGANIZATION_ROLES_E2E_TESTS: 'true'
+      RUN_ORGANIZATIONS_E2E_TESTS: 'true'
       DATABASE_URL: postgresql://test:test@localhost:5432/ums_test
 
     steps:

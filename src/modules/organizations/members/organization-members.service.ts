@@ -8,16 +8,36 @@ import {
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import { requestContext } from '@/core/logging/request-context.js';
-import { randomUUID } from 'node:crypto';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 import type { Prisma } from '@/generated/prisma/client.js';
 import type {
   ListOrganizationMembersInput,
   MemberDirectoryQuery,
 } from './interfaces/organization-members.interface.js';
 
-const currentRequestId = () =>
-  requestContext.getStore()?.requestId ?? randomUUID();
+const OWNER_ROLE_NAME = 'OWNER';
+const ADMIN_ROLE_NAME = 'ADMIN';
+const MEMBER_ROLE_NAME = 'MEMBER';
+
+// Hierarchy for removal; ownership is checked separately through ownerId.
+const MEMBER_LEVEL = 0;
+const CUSTOM_ROLE_LEVEL = 1;
+const ADMIN_LEVEL = 2;
+
+const roleLevelOf = (roleName: string): number => {
+  if (roleName === ADMIN_ROLE_NAME) return ADMIN_LEVEL;
+  if (roleName === MEMBER_ROLE_NAME) return MEMBER_LEVEL;
+  return CUSTOM_ROLE_LEVEL;
+};
+
+/** Active, same-organization, non-system roles; legacy OWNER roles never count. */
+const localRoleFilter = (organizationId: string) =>
+  ({
+    organizationId,
+    isSystem: false,
+    deletedAt: null,
+    name: { not: OWNER_ROLE_NAME },
+  }) satisfies Prisma.RoleWhereInput;
 
 @Injectable()
 export class OrganizationMembersService {
@@ -181,26 +201,15 @@ export class OrganizationMembersService {
 
   private buildMemberRoleSelection(organizationId: string) {
     return {
-      where: {
-        deletedAt: null,
-        role: {
-          organizationId,
-          isSystem: false,
-          deletedAt: null,
-          name: { not: 'OWNER' },
-        },
-      },
+      where: { deletedAt: null, role: localRoleFilter(organizationId) },
       select: { role: { select: { name: true } } },
     } as const;
   }
 
   private memberLevel(assignments: { role: { name: string } }[]): number {
-    // No role or MEMBER = 0, custom roles = 1, ADMIN = 2. Ownership is checked separately.
     return Math.max(
-      0,
-      ...assignments.map(({ role }) =>
-        role.name === 'ADMIN' ? 2 : role.name === 'MEMBER' ? 0 : 1,
-      ),
+      MEMBER_LEVEL,
+      ...assignments.map(({ role }) => roleLevelOf(role.name)),
     );
   }
 
@@ -299,12 +308,7 @@ export class OrganizationMembersService {
         some: {
           roleId,
           deletedAt: null,
-          role: {
-            organizationId,
-            isSystem: false,
-            deletedAt: null,
-            name: { not: 'OWNER' },
-          },
+          role: localRoleFilter(organizationId),
         },
       };
     }
@@ -336,12 +340,7 @@ export class OrganizationMembersService {
           memberRoles: {
             where: {
               deletedAt: null,
-              role: {
-                organizationId,
-                isSystem: false,
-                deletedAt: null,
-                name: { not: 'OWNER' },
-              },
+              role: localRoleFilter(organizationId),
             },
             orderBy: { roleId: 'asc' },
             select: { role: { select: { id: true, name: true } } },

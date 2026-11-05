@@ -15,6 +15,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { CreateOrganizationDto } from './dto/create-organization.dto.js';
 import { OrganizationsService } from './organizations.service.js';
+import { OrganizationCreationService } from './organization-creation.service.js';
+import { OrganizationDeletionService } from './organization-deletion.service.js';
 import { RequireOrganizationPermissions } from '@/common/decorators/require-organization-permissions.decorator.js';
 import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto.js';
 import { UpdateOrganizationDto } from './dto/update-organization.dto.js';
@@ -23,7 +25,11 @@ import { UpdateOrganizationDto } from './dto/update-organization.dto.js';
 @ApiBearerAuth()
 @Controller('organizations')
 export class OrganizationsController {
-  constructor(private readonly organizationsService: OrganizationsService) {}
+  constructor(
+    private readonly organizationsService: OrganizationsService,
+    private readonly creation: OrganizationCreationService,
+    private readonly deletion: OrganizationDeletionService,
+  ) {}
 
   @Delete(':organizationId')
   @HttpCode(204)
@@ -35,7 +41,7 @@ export class OrganizationsController {
     @CurrentUser('id') actorId: string,
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
   ): Promise<void> {
-    await this.organizationsService.deleteForActor(actorId, organizationId);
+    await this.deletion.deleteForActor(actorId, organizationId);
   }
 
   @Get(':organizationId/me/permissions')
@@ -102,6 +108,6 @@ export class OrganizationsController {
     @CurrentUser('id') actorId: string,
     @Body() dto: CreateOrganizationDto,
   ) {
-    return this.organizationsService.create(actorId, dto);
+    return this.creation.createForActor(actorId, dto);
   }
 }

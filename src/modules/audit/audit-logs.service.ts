@@ -3,12 +3,11 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { Prisma } from '@/generated/prisma/client.js';
 import { AuditTargetType } from '@/generated/prisma/enums.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { assertValidPagination } from '@/common/utils/pagination.util.js';
-import { requestContext } from '@/core/logging/request-context.js';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import type {
@@ -16,9 +15,6 @@ import type {
   ListOrganizationAuditEventsQueryDto,
   ListPlatformAuditEventsQueryDto,
 } from './dto/list-audit-events-query.dto.js';
-
-const currentRequestId = () =>
-  requestContext.getStore()?.requestId ?? randomUUID();
 
 @Injectable()
 export class AuditLogsService {

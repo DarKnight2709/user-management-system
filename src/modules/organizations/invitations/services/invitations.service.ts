@@ -21,14 +21,11 @@ import { InvitationEmailService } from './invitation-email.service.js';
 import { CreateInvitationDto } from '../dto/invitation.dto.js';
 import { ListInvitationsQueryDto } from '../dto/list-invitations-query.dto.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import { requestContext } from '@/core/logging/request-context.js';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 
 const INVITATION_EXPIRY_DAYS = 7;
 const RESEND_COOLDOWN_MS = 60_000;
 const MAX_RESEND_COUNT = 5;
-
-const currentRequestId = () =>
-  requestContext.getStore()?.requestId ?? randomUUID();
 
 const INVITATION_LIST_SELECT = {
   id: true,
