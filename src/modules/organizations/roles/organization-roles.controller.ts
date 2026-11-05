@@ -14,6 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { RequireOrganizationPermissions } from '@/common/decorators/require-organization-permissions.decorator.js';
 import { OrganizationRolesService } from './organization-roles.service.js';
+import { OrganizationRoleManagementService } from './organization-role-management.service.js';
 import { CreateOrganizationRoleDto } from './dto/create-organization-role.dto.js';
 import { UpdateOrganizationRoleDto } from './dto/update-organization-role.dto.js';
 import { ListOrganizationRolesQueryDto } from './dto/list-organization-roles-query.dto.js';
@@ -26,7 +27,10 @@ import { ListOrganizationRolesQueryDto } from './dto/list-organization-roles-que
   action: 'read',
 })
 export class OrganizationRolesController {
-  constructor(private readonly roles: OrganizationRolesService) {}
+  constructor(
+    private readonly roles: OrganizationRolesService,
+    private readonly roleManagement: OrganizationRoleManagementService,
+  ) {}
 
   @Delete(':roleId')
   @HttpCode(204)
@@ -40,7 +44,11 @@ export class OrganizationRolesController {
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
     @Param('roleId', ParseUUIDPipe) roleId: string,
   ): Promise<void> {
-    await this.roles.deleteForActor(actorId, organizationId, roleId);
+    await this.roleManagement.deleteForActor({
+      actorId,
+      organizationId,
+      roleId,
+    });
   }
 
   @Patch(':roleId')
@@ -57,7 +65,10 @@ export class OrganizationRolesController {
     @Param('roleId', ParseUUIDPipe) roleId: string,
     @Body() dto: UpdateOrganizationRoleDto,
   ) {
-    return this.roles.updateForActor(actorId, organizationId, roleId, dto);
+    return this.roleManagement.updateForActor(
+      { actorId, organizationId, roleId },
+      dto,
+    );
   }
 
   @Post()
@@ -73,7 +84,7 @@ export class OrganizationRolesController {
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
     @Body() dto: CreateOrganizationRoleDto,
   ) {
-    return this.roles.createForActor(actorId, organizationId, dto);
+    return this.roleManagement.createForActor(actorId, organizationId, dto);
   }
 
   @Get()

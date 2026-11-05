@@ -1,4 +1,5 @@
 import { organizationPermissions } from '@/common/constants/organization-permissions.constant.js';
+import { RESERVED_ROLE_NAMES } from '../constants/organization-role.constant.js';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -19,7 +20,7 @@ export class CreateOrganizationRoleDto {
     message:
       'name must start with a letter and contain at most 50 letters, numbers or underscores',
   })
-  @IsNotIn(['OWNER', 'ADMIN', 'MEMBER'])
+  @IsNotIn(RESERVED_ROLE_NAMES)
   name: string;
 
   @IsArray()
