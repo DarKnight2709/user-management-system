@@ -106,10 +106,23 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
           scanners: vuln,misconfig
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan source code
+        run: semgrep scan --config p/typescript --error
 
   build-and-push-backend:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ci, secret-scan, trivy-fs-scan]
+    needs: [ci, secret-scan, trivy-fs-scan, semgrep]
     runs-on: ubuntu-latest
     permissions:
       contents: read
