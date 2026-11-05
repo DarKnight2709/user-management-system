@@ -49,13 +49,13 @@ describe('Auth application error logging', () => {
     'excludes %s refresh tokens from application errors',
     async (kind) => {
       const { service, prisma, logging } = fixture();
-      // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
-      const token =
-        kind === 'invalid'
-          ? 'not-a-jwt'
-          : jwt.sign({ sub: userId, jti: requestId }, testSecret, {
-              expiresIn: -60,
-            });
+      let token = 'not-a-jwt';
+      if (kind === 'expired') {
+        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
+        token = jwt.sign({ sub: userId, jti: requestId }, testSecret, {
+          expiresIn: -60,
+        });
+      }
       await expect(service.refreshToken(token)).rejects.toBeInstanceOf(
         UnauthorizedException,
       );
