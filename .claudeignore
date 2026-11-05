@@ -1,0 +1,13 @@
+# Bỏ qua các thư mục dependencies và build nặng
+node_modules/
+dist/
+build/
+.next/
+
+# Bỏ qua các file môi trường nhạy cảm
+.env
+.env.local
+
+# Bỏ qua các file log hoặc file nén
+*.log
+*.zip
