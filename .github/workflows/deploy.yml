@@ -139,12 +139,37 @@ jobs:
           username: DarKnight2709
           password: ${{ secrets.GH_PAT }}
 
-      - name: Build and push Backend Image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build once into the local daemon so it can be scanned before publishing.
+      - name: Build Backend Image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: ghcr.io/darknight2709/ums-backend:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ghcr.io/darknight2709/ums-backend:scan
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      # Rebuild is served from the layer cache populated above.
+      - name: Push Backend Image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ghcr.io/darknight2709/ums-backend:latest
+          cache-from: type=gha
 
   deploy-to-vps:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

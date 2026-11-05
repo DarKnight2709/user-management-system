@@ -1,0 +1,34 @@
+name: DAST (OWASP ZAP baseline)
+
+# Manual only: scans a deployed staging instance. Run it only against a target
+# you own and are authorized to test; do not point it at production.
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Staging base URL (e.g. https://staging.example.com)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  zap-baseline:
+    name: ZAP baseline scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check target is reachable
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+        run: curl --fail --silent --show-error --max-time 10 "$TARGET_URL/health/live"
+
+      # Passive baseline scan: spiders the target and reports findings without
+      # attacking it. fail_action is false until the findings are triaged.
+      - name: Run ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ inputs.target_url }}
+          fail_action: false
+          allow_issue_writing: false
+          artifact_name: zap-baseline-report
