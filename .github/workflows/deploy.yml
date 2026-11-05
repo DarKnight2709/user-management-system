@@ -70,10 +70,23 @@ jobs:
 
       - name: Run E2E tests
         run: npm run test:e2e
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
 
   build-and-push-backend:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: ci
+    needs: [ci, secret-scan]
     runs-on: ubuntu-latest
     permissions:
       contents: read
