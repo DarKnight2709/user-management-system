@@ -195,11 +195,12 @@ describe('Invitation input and links', () => {
     expect(() =>
       new InvitationLinksService(new ConfigService()).token('id'),
     ).toThrow();
-    expect(() =>
-      new InvitationLinksService(
-        new ConfigService({ INVITATION_TOKEN_SECRET: 'a'.repeat(64) }),
-      ).link('id'),
-    ).toThrow();
+    const config = {
+      get: (key: string) =>
+        key === 'INVITATION_TOKEN_SECRET' ? 'a'.repeat(64) : undefined,
+    } as ConfigService;
+
+    expect(() => new InvitationLinksService(config).link('id')).toThrow();
   });
 });
 
