@@ -12,7 +12,7 @@ vi.mock('@/core/database/prisma.service.js', () => ({
 
 const userId = '123e4567-e89b-42d3-a456-426614174001';
 const requestId = '123e4567-e89b-42d3-a456-426614174002';
-const secret = 'unit-test-only-refresh-secret';
+const testSecret = 'unit-test-only-refresh-secret';
 
 function fixture() {
   const error = new Error('database failure containing secret details');
@@ -22,7 +22,7 @@ function fixture() {
   const service = new AuthService(
     {} as Dependencies[0],
     prisma as unknown as Dependencies[1],
-    new ConfigService({ JWT_REFRESH_TOKEN_SECRET: secret }),
+    new ConfigService({ JWT_REFRESH_TOKEN_SECRET: testSecret }),
     logging as unknown as Dependencies[3],
   );
   return { service, prisma, logging, error };
@@ -31,7 +31,8 @@ function fixture() {
 describe('Auth application error logging', () => {
   it('logs final refresh failure with request ID and rethrows the same error', async () => {
     const { service, logging, error } = fixture();
-    const token = jwt.sign({ sub: userId, jti: requestId }, secret, {
+    // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
+    const token = jwt.sign({ sub: userId, jti: requestId }, testSecret, {
       expiresIn: 60,
     });
     await requestContext.run({ requestId }, async () => {
@@ -48,10 +49,11 @@ describe('Auth application error logging', () => {
     'excludes %s refresh tokens from application errors',
     async (kind) => {
       const { service, prisma, logging } = fixture();
+      // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
       const token =
         kind === 'invalid'
           ? 'not-a-jwt'
-          : jwt.sign({ sub: userId, jti: requestId }, secret, {
+          : jwt.sign({ sub: userId, jti: requestId }, testSecret, {
               expiresIn: -60,
             });
       await expect(service.refreshToken(token)).rejects.toBeInstanceOf(
@@ -78,7 +80,8 @@ describe('Auth application error logging', () => {
 
   it('logs session-revocation infrastructure failure but not invalid tokens', async () => {
     const { service, logging, error } = fixture();
-    const token = jwt.sign({ sub: userId, jti: requestId }, secret, {
+    // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
+    const token = jwt.sign({ sub: userId, jti: requestId }, testSecret, {
       expiresIn: 60,
     });
 
