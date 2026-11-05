@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
+import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { OrganizationOwnershipService } from '../organization-ownership.service.js';
 
@@ -49,6 +50,7 @@ function setup() {
   };
   const service = new OrganizationOwnershipService(
     prisma as unknown as PrismaService,
+    new PermissionsService(prisma as unknown as PrismaService),
     logging as unknown as LoggingService,
   );
   return { service, manager, logging, prisma, auditEvent };

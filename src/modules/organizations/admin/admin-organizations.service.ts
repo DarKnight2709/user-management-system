@@ -8,8 +8,7 @@ import { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import { requestContext } from '@/core/logging/request-context.js';
-import { randomUUID } from 'node:crypto';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 import { assertValidPagination } from '@/common/utils/pagination.util.js';
 import type {
   AdminOrganizationStatus,
@@ -45,6 +44,15 @@ type AdminOrganization = Prisma.OrganizationGetPayload<{
   select: typeof adminOrganizationSelect;
 }>;
 
+const statusFilters: Record<
+  AdminOrganizationStatus,
+  Prisma.OrganizationWhereInput
+> = {
+  ACTIVE: { deletedAt: null, isActive: true },
+  SUSPENDED: { deletedAt: null, isActive: false },
+  DELETED: { deletedAt: { not: null } },
+};
+
 const getAdminOrganizationStatus = (organization: {
   isActive: boolean;
   deletedAt: Date | null;
@@ -54,9 +62,6 @@ const getAdminOrganizationStatus = (organization: {
     : organization.isActive
       ? 'ACTIVE'
       : 'SUSPENDED';
-
-const currentRequestId = () =>
-  requestContext.getStore()?.requestId ?? randomUUID();
 
 @Injectable()
 export class AdminOrganizationsService {
@@ -115,13 +120,7 @@ export class AdminOrganizationsService {
             ],
           }
         : {}),
-      ...(status === 'ACTIVE'
-        ? { deletedAt: null, isActive: true }
-        : status === 'SUSPENDED'
-          ? { deletedAt: null, isActive: false }
-          : status === 'DELETED'
-            ? { deletedAt: { not: null } }
-            : {}),
+      ...(status ? statusFilters[status] : {}),
     };
   }
 

@@ -4,26 +4,23 @@ import {
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import type { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import { requestContext } from '@/core/logging/request-context.js';
-import { randomUUID } from 'node:crypto';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
+import { PermissionsService } from '@/common/services/permissions.service.js';
 import type {
   OwnerMembership,
   OwnershipTransaction,
   TransferOwnershipInput,
 } from './interfaces/organization-ownership.interface.js';
 
-const currentRequestId = () =>
-  requestContext.getStore()?.requestId ?? randomUUID();
-
 @Injectable()
 export class OrganizationOwnershipService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly permissions: PermissionsService,
     private readonly logging: LoggingService,
   ) {}
 
@@ -70,11 +67,7 @@ export class OrganizationOwnershipService {
     manager: Prisma.TransactionClient,
     { actorId, organizationId }: TransferOwnershipInput,
   ): Promise<OwnerMembership> {
-    const actor = await manager.user.findUnique({
-      where: { id: actorId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!actor) throw new UnauthorizedException('Authentication required');
+    await this.permissions.assertActiveActor(actorId, manager);
     const membership = await manager.organizationMember.findFirst({
       where: {
         userId: actorId,

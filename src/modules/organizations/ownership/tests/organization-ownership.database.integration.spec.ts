@@ -15,6 +15,7 @@ import {
 } from 'vitest';
 import { Prisma, PrismaClient } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
+import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { OrganizationOwnershipService } from '../organization-ownership.service.js';
 
@@ -60,10 +61,14 @@ describe.runIf(runDatabaseTests)(
       });
 
     const createService = () =>
-      new OrganizationOwnershipService(createHost(), {
-        audit: vi.fn().mockResolvedValue({ eventId: randomUUID() }),
-        publishCommittedAudit: vi.fn(),
-      } as unknown as LoggingService);
+      new OrganizationOwnershipService(
+        createHost(),
+        new PermissionsService(createHost()),
+        {
+          audit: vi.fn().mockResolvedValue({ eventId: randomUUID() }),
+          publishCommittedAudit: vi.fn(),
+        } as unknown as LoggingService,
+      );
 
     beforeAll(async () => {
       const databaseUrl = process.env.DATABASE_URL;
@@ -193,6 +198,7 @@ describe.runIf(runDatabaseTests)(
       };
       const service = new OrganizationOwnershipService(
         createHost(),
+        new PermissionsService(createHost()),
         logging as unknown as LoggingService,
       );
 
