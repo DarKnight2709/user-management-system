@@ -6,6 +6,21 @@ name: Performance (k6 smoke)
 # other runs of this workflow; they say nothing about VPS capacity.
 on:
   workflow_dispatch:
+    inputs:
+      script:
+        description: 'Which k6 script to run (the weekly schedule always runs smoke)'
+        type: choice
+        default: smoke
+        options:
+          - smoke
+          - load
+          - stress
+          - login
+          - writes
+      users:
+        description: 'Override the number of virtual users (empty = script default)'
+        type: string
+        required: false
   schedule:
     - cron: '0 3 * * 1'
 
@@ -16,7 +31,7 @@ jobs:
   k6-smoke:
     name: k6 smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     services:
       postgres:
@@ -79,7 +94,8 @@ jobs:
         run: docker run --rm --network host $APP_ENV_ARGS ums-backend:perf npm run prisma:seed:organization-permissions
 
       - name: Start backend
-        run: docker run -d --name ums-backend --network host $APP_ENV_ARGS ums-backend:perf
+        # Same CPU and memory limits as the backend in docker-compose.prod.yml.
+        run: docker run -d --name ums-backend --network host --cpus=1 --memory=512m $APP_ENV_ARGS ums-backend:perf
 
       - name: Wait for backend to become healthy
         run: |
@@ -92,24 +108,38 @@ jobs:
           docker logs --tail 80 ums-backend
           exit 1
 
-      - name: Run k6 smoke test
+      - name: Run k6 script
+        env:
+          SCRIPT: ${{ inputs.script || 'smoke' }}
+          USERS: ${{ inputs.users }}
         run: |
           mkdir -p k6-results && chmod 777 k6-results
+          users_arg=""
+          if [ -n "$USERS" ]; then
+            case "$USERS" in
+              *[!0-9]*) echo "users must be a number"; exit 1 ;;
+            esac
+            users_arg="-e USERS=$USERS"
+          fi
           docker run --rm --network host \
             -v "$PWD/performance:/scripts:ro" \
             -v "$PWD/k6-results:/results" \
             -e BASE_URL=http://localhost:3000 \
-            -e USERS=10 \
+            $users_arg \
             grafana/k6:2.3.0 run \
-              --summary-export /results/summary.json \
-              /scripts/smoke.js
+              --summary-export "/results/$SCRIPT-summary.json" \
+              "/scripts/$SCRIPT.ts"
+
+      - name: Show backend resource usage
+        if: always()
+        run: docker stats --no-stream ums-backend
 
       - name: Upload k6 summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k6-summary
-          path: k6-results/summary.json
+          path: k6-results/*-summary.json
           if-no-files-found: ignore
 
       - name: Show backend logs on failure
