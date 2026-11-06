@@ -6,9 +6,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
-import { randomUUID } from 'node:crypto';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import { requestContext } from '@/core/logging/request-context.js';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 
 // This filter will differentiate between HttpException and unexpected Errors
 @Catch() // catch everything: HttpException and raw unexpected Errors
@@ -47,7 +46,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
           event: 'http.operational_error',
           statusCode: status,
           requestContext: {
-            requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            requestId: currentRequestId(),
           },
         });
       }
@@ -90,7 +89,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         event: 'http.payload_too_large',
         statusCode: HttpStatus.PAYLOAD_TOO_LARGE,
         requestContext: {
-          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          requestId: currentRequestId(),
         },
       });
     }
@@ -125,7 +124,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         errorType,
         stackFrames: stackFrames?.length ? stackFrames : undefined,
         requestContext: {
-          requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+          requestId: currentRequestId(),
         },
       });
 

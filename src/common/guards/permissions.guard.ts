@@ -9,7 +9,6 @@ import {
 import { Reflector } from '@nestjs/core';
 import { isUUID } from 'class-validator';
 import type { Request } from 'express';
-import { randomUUID } from 'node:crypto';
 import {
   PLATFORM_PERMISSIONS_KEY,
   type PlatformPermission,
@@ -22,7 +21,7 @@ import {
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import type { AuthorizationDeniedEventInput } from '@/modules/logging/types/security-event.types.js';
-import { requestContext } from '@/core/logging/request-context.js';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -55,9 +54,11 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    const request = context.switchToHttp().getRequest<Request & {
-      user?: { id?: unknown };
-    }>();
+    const request = context.switchToHttp().getRequest<
+      Request & {
+        user?: { id?: unknown };
+      }
+    >();
     const userId = request.user?.id;
     if (typeof userId !== 'string' || userId.length === 0) {
       throw new UnauthorizedException('Authentication required');
@@ -101,10 +102,12 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    const request = context.switchToHttp().getRequest<Request & {
-      user?: { id?: unknown };
-      params?: Record<string, unknown>;
-    }>();
+    const request = context.switchToHttp().getRequest<
+      Request & {
+        user?: { id?: unknown };
+        params?: Record<string, unknown>;
+      }
+    >();
     const userId = request.user?.id;
     if (typeof userId !== 'string' || userId.length === 0) {
       throw new UnauthorizedException('Authentication required');
@@ -129,8 +132,7 @@ export class PermissionsGuard implements CanActivate {
           actor: { type: 'USER', id: userId },
           scope: 'ORGANIZATION',
           organizationId,
-          reasonCode:
-            'INSUFFICIENT_ORGANIZATION_PERMISSION_OR_MEMBERSHIP',
+          reasonCode: 'INSUFFICIENT_ORGANIZATION_PERMISSION_OR_MEMBERSHIP',
           requiredPermissions: required.map(({ resource, action }) => ({
             resource,
             action,
@@ -145,10 +147,11 @@ export class PermissionsGuard implements CanActivate {
   }
 
   private logAuthorizationDenial(
-    event: Omit<
-      Extract<AuthorizationDeniedEventInput, { scope: 'PLATFORM' }>,
-      'requestContext'
-    >
+    event:
+      | Omit<
+          Extract<AuthorizationDeniedEventInput, { scope: 'PLATFORM' }>,
+          'requestContext'
+        >
       | Omit<
           Extract<AuthorizationDeniedEventInput, { scope: 'ORGANIZATION' }>,
           'requestContext'
@@ -158,7 +161,7 @@ export class PermissionsGuard implements CanActivate {
     this.logging.security({
       ...event,
       requestContext: {
-        requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+        requestId: currentRequestId(),
         sourceIp: request.ip,
         userAgent: request.get('user-agent'),
       },
