@@ -1,0 +1,7 @@
+export const MAX_EVENT_BYTES = 16 * 1024;
+
+export type LogFailureReason =
+  | 'APPLICATION_LOG_FAILED'
+  | 'SECURITY_LOG_FAILED'
+  | 'AUDIT_COPY_FAILED'
+  | 'WINSTON_TRANSPORT_FAILED';
