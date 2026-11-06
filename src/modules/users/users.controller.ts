@@ -15,6 +15,8 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service.js';
+import { UserDeletionService } from './user-deletion.service.js';
+import { UserAvatarService } from './user-avatar.service.js';
 import { User, type PaginatedUsers } from './interfaces/user.interface.js';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { AvatarUploadInterceptor } from '@/common/interceptors/avatar-upload.interceptor.js';
@@ -27,7 +29,11 @@ import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
 @ApiBearerAuth()
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly deletion: UserDeletionService,
+    private readonly avatars: UserAvatarService,
+  ) {}
 
   // Listing always requires platform USER:read, including for SUPER_ADMIN.
   @Get()
@@ -75,7 +81,7 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') currentUserId: string,
   ): Promise<void> {
-    await this.usersService.delete({ actorId: currentUserId, targetId: id });
+    await this.deletion.delete({ actorId: currentUserId, targetId: id });
   }
 
   @Post('avatar')
@@ -86,6 +92,6 @@ export class UsersController {
     @UploadedFile(new JpegAvatarPipe())
     file: Express.Multer.File,
   ) {
-    return this.usersService.upload(userId, file);
+    return this.avatars.upload(userId, file);
   }
 }
