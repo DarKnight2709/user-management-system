@@ -3,7 +3,7 @@ import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { AuditTargetType } from '@/generated/prisma/enums.js';
 import { AUDIT_POLICIES } from '@/modules/logging/policies/audit-event.policy.js';
 import type { AuditEventName } from '@/modules/logging/types/audit-event.types.js';
-import { ORGANIZATION_AUDIT_ACTIONS } from '../audit-action.constants.js';
+import { ORGANIZATION_AUDIT_ACTIONS } from '../constants/organization-audit-actions.constant.js';
 
 abstract class AuditEventQueryDto {
   @Type(() => Number)
