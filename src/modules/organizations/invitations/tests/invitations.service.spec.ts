@@ -5,7 +5,7 @@ import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { InvitationEmailService } from '../services/invitation-email.service.js';
 import { InvitationLinksService } from '../services/invitation-links.service.js';
-import { InvitationsService } from '../services/invitations.service.js';
+import { buildInvitationFlow } from './support/invitation-services.js';
 import type { Prisma } from '@/generated/prisma/client.js';
 
 const invitationId = '123e4567-e89b-42d3-a456-426614174000';
@@ -50,9 +50,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     },
     organizationInvitation: {
       findFirst: vi.fn(({ where }: { where: { status?: string } }) =>
-        where.status === 'PENDING'
-          ? null
-          : Promise.resolve(invitation),
+        where.status === 'PENDING' ? null : Promise.resolve(invitation),
       ),
       findUnique: vi.fn().mockResolvedValue(invitation),
       findMany: vi.fn().mockResolvedValue([invitation]),
@@ -99,18 +97,18 @@ function setup(overrides: Record<string, unknown> = {}) {
       operation: (client: Prisma.TransactionClient) => Promise<unknown>,
     ) => operation(manager as unknown as Prisma.TransactionClient),
   };
-  const service = new InvitationsService(
-    prisma as unknown as PrismaService,
-    permissions as unknown as PermissionsService,
-    new InvitationLinksService(
+  const service = buildInvitationFlow({
+    prisma: prisma as unknown as PrismaService,
+    permissions: permissions as unknown as PermissionsService,
+    links: new InvitationLinksService(
       new ConfigService({
         INVITATION_TOKEN_SECRET: tokenSecret,
         FRONTEND_URL: 'http://frontend.invalid',
       }),
     ),
-    email as unknown as InvitationEmailService,
-    logging as unknown as LoggingService,
-  );
+    email: email as unknown as InvitationEmailService,
+    logging: logging as unknown as LoggingService,
+  });
 
   return {
     service,
@@ -124,12 +122,14 @@ function setup(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('InvitationsService', () => {
+describe('Invitation services', () => {
   it('creates an invitation and enqueues its email after the transaction', async () => {
     const { service, manager, audit, email, logging } = setup();
 
     await expect(
-      service.create(actorId, organizationId, { email: ' Member@Example.com ' }),
+      service.create(actorId, organizationId, {
+        email: ' Member@Example.com ',
+      }),
     ).resolves.toEqual({ emailQueued: true });
 
     expect(manager.organizationInvitation.create).toHaveBeenCalledOnce();

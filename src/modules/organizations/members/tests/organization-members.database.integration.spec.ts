@@ -18,6 +18,7 @@ import { PrismaService } from '@/core/database/prisma.service.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { OrganizationMembersService } from '../organization-members.service.js';
+import { OrganizationMemberRemovalService } from '../organization-member-removal.service.js';
 import { MemberRolesService } from '../member-roles.service.js';
 
 const runDatabaseTests = process.env.RUN_DATABASE_TESTS === 'true';
@@ -70,6 +71,10 @@ describe.runIf(runDatabaseTests)(
       const host = createHost();
       return {
         members: new OrganizationMembersService(
+          host,
+          new PermissionsService(host),
+        ),
+        removals: new OrganizationMemberRemovalService(
           host,
           new PermissionsService(host),
           {
@@ -194,17 +199,17 @@ describe.runIf(runDatabaseTests)(
     });
 
     it('removes a member idempotently and retains its roles and account', async () => {
-      const { members, roles } = createServices();
+      const { removals, roles } = createServices();
       await roles.assignForActor(ownerId, organizationId, membershipId, roleId);
 
-      await members.removeForActor(ownerId, organizationId, membershipId);
+      await removals.removeForActor(ownerId, organizationId, membershipId);
       const removed = await db.organizationMember.findUniqueOrThrow({
         where: { id: membershipId },
       });
       expect(removed.deletedAt).toBeInstanceOf(Date);
 
       await expect(
-        members.removeForActor(ownerId, organizationId, membershipId),
+        removals.removeForActor(ownerId, organizationId, membershipId),
       ).resolves.toBeUndefined();
       await expect(
         db.user.findUnique({ where: { id: memberId } }),

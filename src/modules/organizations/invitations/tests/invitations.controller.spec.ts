@@ -13,7 +13,10 @@ describe('Invitation controllers', () => {
       copyLink: vi.fn(),
       revoke: vi.fn(),
     };
-    const controller = new InvitationsController(invitations as never);
+    const controller = new InvitationsController(
+      invitations as never,
+      invitations as never,
+    );
     const dto = { email: 'member@example.com' };
 
     await controller.create('actor', 'organization', dto as never);

@@ -5,14 +5,22 @@ import { readdir, readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { ConfigService } from '@nestjs/config';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { PrismaClient, Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { InvitationEmailService } from '../services/invitation-email.service.js';
 import { InvitationLinksService } from '../services/invitation-links.service.js';
-import { InvitationsService } from '../services/invitations.service.js';
+import { buildInvitationFlow } from './support/invitation-services.js';
 
 const runDatabaseTests = process.env.RUN_DATABASE_TESTS === 'true';
 const tokenSecret = 'database-invitation-secret-'.repeat(4);
@@ -58,13 +66,13 @@ describe.runIf(runDatabaseTests)('Invitations database integration', () => {
       }),
     );
     return {
-      service: new InvitationsService(
-        host,
-        permissions as unknown as PermissionsService,
-        links,
-        email as unknown as InvitationEmailService,
-        logging as unknown as LoggingService,
-      ),
+      service: buildInvitationFlow({
+        prisma: host,
+        permissions: permissions as unknown as PermissionsService,
+        links: links,
+        email: email as unknown as InvitationEmailService,
+        logging: logging as unknown as LoggingService,
+      }),
       links,
       email,
     };
@@ -153,9 +161,7 @@ describe.runIf(runDatabaseTests)('Invitations database integration', () => {
 
     expect(result).toEqual({ emailQueued: true });
     expect(invitation.status).toBe('PENDING');
-    expect(invitation.tokenHash).toBe(
-      links.hash(links.token(invitation.id)),
-    );
+    expect(invitation.tokenHash).toBe(links.hash(links.token(invitation.id)));
     expect(invitation.deliveryStatus).toBe('NOT_QUEUED');
   });
 
@@ -184,15 +190,19 @@ describe.runIf(runDatabaseTests)('Invitations database integration', () => {
       }),
     ]);
 
-    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(
-      1,
-    );
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1);
     expect(
       results.filter((result) => result.status === 'rejected'),
     ).toHaveLength(1);
     expect(
       await db.organizationInvitation.count({
-        where: { organizationId, email: 'racing@example.com', status: 'PENDING' },
+        where: {
+          organizationId,
+          email: 'racing@example.com',
+          status: 'PENDING',
+        },
       }),
     ).toBe(1);
   });
