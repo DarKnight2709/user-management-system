@@ -878,7 +878,7 @@ database fixtures. To run the account policy suite against local PostgreSQL:
 
 ```powershell
 $env:RUN_DATABASE_TESTS = 'true'
-npm test -- src/core/database/prisma.service.spec.ts src/modules/users/dto/list-users-query.dto.spec.ts src/modules/users/tests/users.database.integration.spec.ts src/modules/logging/tests/audit.database.integration.spec.ts
+npm test -- src/core/database/prisma.service.spec.ts src/modules/users/dto/list-users-query.dto.spec.ts src/modules/users/tests/users.database.integration.spec.ts src/modules/logging/tests/audit.database.integration.spec.ts src/modules/audit/tests/audit-logs.database.integration.spec.ts
 Remove-Item Env:RUN_DATABASE_TESTS
 ```
 
@@ -895,7 +895,7 @@ Each module is covered by up to three test layers:
 | Database integration (isolated temporary schema) | `*.database.integration.spec.ts` | `RUN_DATABASE_TESTS=true` |
 | E2E (HTTP, via `AppModule`) | `test/*.e2e-spec.ts` | `RUN_<MODULE>_E2E_TESTS=true npm run test:e2e` |
 
-Users has all three layers (its e2e suite covers unauthenticated access). Logging
+Users and audit have all three layers (their e2e suites cover unauthenticated access). Logging
 has unit and database integration tests only because it exposes no HTTP routes.
 
 Type-check these tests with the project aliases:
@@ -924,6 +924,7 @@ user-management-system/
 │   └── modules/
 │       ├── auth/            # Auth module (Passport local/jwt, token issuance)
 │       ├── users/           # UsersService, UserDeletionService, UserAvatarService, tests/
+│       ├── audit/           # AuditLogsService, access/reader/view-recorder services, tests/
 │       ├── logging/         # LoggingService facade, LogEmitter, AuditRecorder, policies, schemas, tests/
 │       └── ...              # organizations, audit, health, global
 ├── AGENTS.md                # Operating guidelines for AI coding assistants
