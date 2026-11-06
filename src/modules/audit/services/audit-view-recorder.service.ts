@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@/generated/prisma/client.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import type { StoredAuditEvent } from '@/modules/logging/types/audit-event.types.js';
-import type { AuditEventFilters } from './interfaces/audit-logs.interface.js';
+import type { AuditEventFilters } from '../interfaces/audit-logs.interface.js';
 
 /** Records `audit.log.viewed` in the same transaction as the page it describes. */
 @Injectable()

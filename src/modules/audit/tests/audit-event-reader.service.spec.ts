@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client.js';
-import { AuditEventReader } from '../audit-event-reader.service.js';
+import { AuditEventReader } from '../services/audit-event-reader.service.js';
 import type { AuditEventFilters } from '../interfaces/audit-logs.interface.js';
 
 const organizationId = '223e4567-e89b-42d3-a456-426614174000';

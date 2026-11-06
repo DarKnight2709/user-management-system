@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
-import { OrganizationAuditAccessService } from '../organization-audit-access.service.js';
+import { OrganizationAuditAccessService } from '../services/organization-audit-access.service.js';
 
 const actorId = '323e4567-e89b-42d3-a456-426614174000';
 const ownerId = '623e4567-e89b-42d3-a456-426614174000';

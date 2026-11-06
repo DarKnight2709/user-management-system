@@ -5,7 +5,7 @@ import {
   BUILT_IN_ADMIN_ROLE_NAME,
   ORGANIZATION_AUDIT_DENIED_MESSAGE,
   ORGANIZATION_AUDIT_PERMISSION,
-} from './constants/audit-logs.constant.js';
+} from '../constants/audit-logs.constant.js';
 
 /**
  * Organization audit history is limited to the owner or a built-in local ADMIN

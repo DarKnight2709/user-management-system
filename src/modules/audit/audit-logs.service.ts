@@ -3,8 +3,8 @@ import { PermissionsService } from '@/common/services/permissions.service.js';
 import { assertValidPagination } from '@/common/utils/pagination.util.js';
 import { currentRequestId } from '@/common/utils/request-id.util.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
-import { AuditEventReader } from './audit-event-reader.service.js';
-import { AuditViewRecorder } from './audit-view-recorder.service.js';
+import { AuditEventReader } from './services/audit-event-reader.service.js';
+import { AuditViewRecorder } from './services/audit-view-recorder.service.js';
 import {
   PLATFORM_AUDIT_DENIED_MESSAGE,
   PLATFORM_AUDIT_PERMISSION,
@@ -14,7 +14,7 @@ import type {
   ListPlatformAuditEventsQueryDto,
 } from './dto/list-audit-events-query.dto.js';
 import type { PaginatedAuditEvents } from './interfaces/audit-logs.interface.js';
-import { OrganizationAuditAccessService } from './organization-audit-access.service.js';
+import { OrganizationAuditAccessService } from './services/organization-audit-access.service.js';
 
 /**
  * Audit history reads. Authorization, the page/count query and the
