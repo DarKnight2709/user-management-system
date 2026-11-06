@@ -10,6 +10,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
+import { AuthSessionService } from './services/auth-session.service.js';
+import { PasswordService } from './services/password.service.js';
 import { AuthGuard } from '@nestjs/passport';
 import {
   CurrentUser,
@@ -25,7 +27,11 @@ import { UserRateLimit } from '@/common/decorators/user-rate-limit.decorator.js'
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly sessions: AuthSessionService,
+    private readonly passwords: PasswordService,
+  ) {}
 
   @UseGuards(AuthGuard('local'))
   @SetMetadata('loginAccountRateLimit', true)
@@ -36,7 +42,7 @@ export class AuthController {
   async login(@CurrentUser() user: RequestUser, @Req() request: Request) {
     const ipAddress = request.ip;
     const userAgent = request.get('user-agent');
-    return this.authService.login(user, ipAddress, userAgent);
+    return this.sessions.login(user, ipAddress, userAgent);
   }
 
   @IpRateLimit(5)
@@ -63,7 +69,7 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
     @Req() request: Request,
   ): Promise<void> {
-    await this.authService.changePassword(
+    await this.passwords.changePassword(
       userId,
       dto,
       request.ip,
@@ -79,7 +85,7 @@ export class AuthController {
     @Body() dto: RefreshTokenDto,
     @Req() request: Request,
   ): Promise<void> {
-    await this.authService.logout(
+    await this.sessions.logout(
       dto.refreshToken,
       userId,
       request.ip,
@@ -95,7 +101,7 @@ export class AuthController {
     @CurrentUser() user: RequestUser,
     @Req() request: Request,
   ): Promise<void> {
-    await this.authService.logoutAll(
+    await this.sessions.logoutAll(
       user.id,
       request.ip,
       request.get('user-agent'),
@@ -115,7 +121,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Rotate refresh token and issue new tokens' })
   async refresh(@Body() dto: RefreshTokenDto, @Req() request: Request) {
-    return this.authService.refreshToken(
+    return this.sessions.refreshToken(
       dto.refreshToken,
       request.ip,
       request.get('user-agent'),
