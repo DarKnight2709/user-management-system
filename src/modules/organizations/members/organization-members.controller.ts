@@ -12,13 +12,17 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '@/common/decorators/current-user.decorator.js';
 import { RequireOrganizationPermissions } from '@/common/decorators/require-organization-permissions.decorator.js';
 import { ListOrganizationMembersQueryDto } from './dto/list-organization-members-query.dto.js';
+import { OrganizationMemberRemovalService } from './organization-member-removal.service.js';
 import { OrganizationMembersService } from './organization-members.service.js';
 
 @ApiTags('Organization Members')
 @ApiBearerAuth()
 @Controller('organizations/:organizationId/members')
 export class OrganizationMembersController {
-  constructor(private readonly members: OrganizationMembersService) {}
+  constructor(
+    private readonly members: OrganizationMembersService,
+    private readonly removals: OrganizationMemberRemovalService,
+  ) {}
 
   @Post('leave')
   @HttpCode(204)
@@ -27,7 +31,7 @@ export class OrganizationMembersController {
     @CurrentUser('id') actorId: string,
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
   ): Promise<void> {
-    await this.members.leaveForActor(actorId, organizationId);
+    await this.removals.leaveForActor(actorId, organizationId);
   }
 
   @Delete(':memberId')
@@ -42,7 +46,7 @@ export class OrganizationMembersController {
     @Param('organizationId', ParseUUIDPipe) organizationId: string,
     @Param('memberId', ParseUUIDPipe) memberId: string,
   ): Promise<void> {
-    await this.members.removeForActor(actorId, organizationId, memberId);
+    await this.removals.removeForActor(actorId, organizationId, memberId);
   }
 
   @Get()
