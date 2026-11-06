@@ -895,7 +895,7 @@ Each module is covered by up to three test layers:
 | Database integration (isolated temporary schema) | `*.database.integration.spec.ts` | `RUN_DATABASE_TESTS=true` |
 | E2E (HTTP, via `AppModule`) | `test/*.e2e-spec.ts` | `RUN_<MODULE>_E2E_TESTS=true npm run test:e2e` |
 
-Users and audit have all three layers (their e2e suites cover unauthenticated access). Logging
+Users, audit and auth have all three layers (their e2e suites cover unauthenticated access). Logging
 has unit and database integration tests only because it exposes no HTTP routes.
 
 Type-check these tests with the project aliases:
@@ -922,7 +922,7 @@ user-management-system/
 │   ├── common/              # Shared guards, interceptors, filters, decorators
 │   ├── core/                # Core providers: Prisma database, S3 storage, env validation
 │   └── modules/
-│       ├── auth/            # Auth module (Passport local/jwt, token issuance)
+│       ├── auth/            # AuthService, services/ (sessions, passwords, tokens), strategies, tests/
 │       ├── users/           # UsersService, UserDeletionService, UserAvatarService, tests/
 │       ├── audit/           # AuditLogsService, access/reader/view-recorder services, tests/
 │       ├── logging/         # LoggingService facade, LogEmitter, AuditRecorder, policies, schemas, tests/
