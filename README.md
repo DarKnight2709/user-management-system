@@ -88,6 +88,8 @@ flowchart TD
         subgraph Services ["Services & Logic"]
             AuthSvc["AuthService"]
             UsersSvc["UsersService"]
+            UserDelSvc["UserDeletionService"]
+            UserAvatarSvc["UserAvatarService"]
             S3Svc["S3Service"]
             PrismaSvc["PrismaService"]
             HealthSvc["HealthService"]
@@ -108,8 +110,13 @@ flowchart TD
 
     AuthCtrl --> AuthSvc
     UsersCtrl --> UsersSvc
+    UsersCtrl --> UserDelSvc
+    UsersCtrl --> UserAvatarSvc
     UsersSvc --> S3Svc
     UsersSvc --> PrismaSvc
+    UserDelSvc --> PrismaSvc
+    UserAvatarSvc --> S3Svc
+    UserAvatarSvc --> PrismaSvc
     AuthSvc --> PrismaSvc
     HealthCtrl --> HealthSvc
     HealthSvc --> PrismaSvc
@@ -526,7 +533,7 @@ of target existence, and an authorized missing/deleted target is 404. Responses
 omit the password hash and replace the stored avatar key with its public URL.
 
 It exposes single-permission and all-permissions checks. `DELETE /users/:id`
-passes actor/target IDs to the shared deletion service. It verifies the active
+passes actor/target IDs to `UserDeletionService`. It verifies the active
 actor and permits self-deletion or platform `USER:delete` within the same
 serializable transaction as deletion and refresh-token revocation. Both paths
 return HTTP 409 for owners of undeleted organizations (including inactive ones)
@@ -538,8 +545,8 @@ USER:delete and ownership checks still apply. Missing targets return
 Memberships, role assignments, and the current avatar are retained; JWT
 authentication rejects deleted users. Successful deletion writes `user.deleted`
 to `audit_events` in the deletion/refresh-session revocation transaction.
-See [USER_DELETION_VERIFICATION.md](USER_DELETION_VERIFICATION.md) for the real
-database scenarios, retry fix, and verification limits. The
+See `src/modules/users/tests/users.database.integration.spec.ts` for the covered
+database scenarios. The
 remaining authorization work is summarized in Project Status and Remaining Work.
 
 Organization ownership is stored separately in `Organization.ownerId`.
@@ -871,7 +878,7 @@ database fixtures. To run the account policy suite against local PostgreSQL:
 
 ```powershell
 $env:RUN_DATABASE_TESTS = 'true'
-npm test -- src/core/database/prisma.service.spec.ts src/modules/users/dto/list-users-query.dto.spec.ts test/users-deletion.integration.spec.ts
+npm test -- src/core/database/prisma.service.spec.ts src/modules/users/dto/list-users-query.dto.spec.ts src/modules/users/tests/users.database.integration.spec.ts src/modules/logging/tests/audit.database.integration.spec.ts
 Remove-Item Env:RUN_DATABASE_TESTS
 ```
 
@@ -879,6 +886,17 @@ The integration suite creates a unique temporary schema, applies checked-in
 migrations there, and removes it after testing. It refuses non-local database
 hosts and requires permission to create/drop that temporary schema. Application
 records are not used as fixtures. Do not stop PostgreSQL during this suite.
+
+Each module is covered by up to three test layers:
+
+| Layer | Location | How to run |
+| :-- | :-- | :-- |
+| Unit (mocked Prisma) | `src/modules/<module>/tests/*.spec.ts` | `npm test` |
+| Database integration (isolated temporary schema) | `*.database.integration.spec.ts` | `RUN_DATABASE_TESTS=true` |
+| E2E (HTTP, via `AppModule`) | `test/*.e2e-spec.ts` | `RUN_<MODULE>_E2E_TESTS=true npm run test:e2e` |
+
+Users has all three layers (its e2e suite covers unauthenticated access). Logging
+has unit and database integration tests only because it exposes no HTTP routes.
 
 Type-check these tests with the project aliases:
 
@@ -905,7 +923,9 @@ user-management-system/
 │   ├── core/                # Core providers: Prisma database, S3 storage, env validation
 │   └── modules/
 │       ├── auth/            # Auth module (Passport local/jwt, token issuance)
-│       └── users/           # Users module (CRUD, avatar upload)
+│       ├── users/           # UsersService, UserDeletionService, UserAvatarService, tests/
+│       ├── logging/         # LoggingService facade, LogEmitter, AuditRecorder, policies, schemas, tests/
+│       └── ...              # organizations, audit, health, global
 ├── AGENTS.md                # Operating guidelines for AI coding assistants
 └── GIT_GUIDELINES.md        # Branching, conventional commits & PR standards
 ```
