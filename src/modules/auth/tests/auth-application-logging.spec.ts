@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
 import jwt from 'jsonwebtoken';
-import { AuthService } from './auth.service.js';
+import { AuthSessionService } from '../services/auth-session.service.js';
+import { TokenService } from '../services/token.service.js';
 import { requestContext } from '@/core/logging/request-context.js';
 
-vi.mock('../users/users.service.js', () => ({ UsersService: class {} }));
 vi.mock('@/core/database/prisma.service.js', () => ({
   PrismaService: class {},
 }));
@@ -18,12 +18,15 @@ function fixture() {
   const error = new Error('database failure containing secret details');
   const prisma = { serializableTransaction: vi.fn().mockRejectedValue(error) };
   const logging = { application: vi.fn(), security: vi.fn() };
-  type Dependencies = ConstructorParameters<typeof AuthService>;
-  const service = new AuthService(
-    {} as Dependencies[0],
-    prisma as unknown as Dependencies[1],
+  type Dependencies = ConstructorParameters<typeof AuthSessionService>;
+  const tokens = new TokenService(
+    prisma as unknown as ConstructorParameters<typeof TokenService>[0],
     new ConfigService({ JWT_REFRESH_TOKEN_SECRET: testSecret }),
-    logging as unknown as Dependencies[3],
+  );
+  const service = new AuthSessionService(
+    prisma as unknown as Dependencies[0],
+    tokens,
+    logging as unknown as Dependencies[2],
   );
   return { service, prisma, logging, error };
 }

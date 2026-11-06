@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "incremental": false,
-    "types": ["vitest/globals", "node", "multer"]
+    "types": ["vitest/globals", "node", "multer", "passport"]
   },
   "include": [
     "../src/modules/organizations/ownership/dto/transfer-ownership.dto.spec.ts",
@@ -12,6 +12,7 @@
     "../src/modules/users/tests/users.database.integration.spec.ts",
     "../src/modules/logging/tests/audit.database.integration.spec.ts",
     "../src/modules/audit/tests/audit-logs.database.integration.spec.ts",
+    "../src/modules/auth/tests/auth.database.integration.spec.ts",
     "../src/core/database/prisma.service.spec.ts",
     "../src/modules/users/dto/list-users-query.dto.spec.ts",
     "../src/modules/organizations/dto/list-organizations-query.dto.spec.ts",
