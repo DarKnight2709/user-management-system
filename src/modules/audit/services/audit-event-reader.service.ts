@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@/generated/prisma/client.js';
 import type { AuditTargetType } from '@/generated/prisma/enums.js';
-import { AUDIT_EVENT_ORDER } from './constants/audit-logs.constant.js';
+import { AUDIT_EVENT_ORDER } from '../constants/audit-logs.constant.js';
 import type {
   AuditEventFilters,
   PaginatedAuditEvents,
-} from './interfaces/audit-logs.interface.js';
+} from '../interfaces/audit-logs.interface.js';
 
 /** Reads one filtered audit page and its total from a single transaction snapshot. */
 @Injectable()
