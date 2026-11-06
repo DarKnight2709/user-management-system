@@ -13,9 +13,8 @@ import {
 } from '@nestjs/throttler';
 import { Response } from 'express';
 import type { Request } from 'express';
-import { randomUUID } from 'node:crypto';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import { requestContext } from '@/core/logging/request-context.js';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 
 // counter increments, expiration, limit checks, and blocking through its guard and storage.
 export class CustomThrottlerGuard extends ThrottlerGuard {
@@ -109,7 +108,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
           limitPolicy:
             requestProps.throttler.name === 'account' ? 'ACCOUNT' : 'IP',
           requestContext: {
-            requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            requestId: currentRequestId(),
             sourceIp: request.ip,
             userAgent: request.get('user-agent'),
           },

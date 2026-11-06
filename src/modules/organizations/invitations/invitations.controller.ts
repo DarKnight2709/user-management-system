@@ -17,7 +17,9 @@ import {
   AcceptInvitationDto,
   CreateInvitationDto,
 } from './dto/invitation.dto.js';
-import { InvitationsService } from './services/invitations.service.js';
+import { InvitationAcceptanceService } from './services/invitation-acceptance.service.js';
+import { InvitationCreationService } from './services/invitation-creation.service.js';
+import { InvitationManagementService } from './services/invitation-management.service.js';
 import { ListInvitationsQueryDto } from './dto/list-invitations-query.dto.js';
 import { UserRateLimit } from '@/common/decorators/user-rate-limit.decorator.js';
 import { IpRateLimit } from '@/common/decorators/ip-rate-limit.decorator.js';
@@ -31,7 +33,10 @@ import { IpRateLimit } from '@/common/decorators/ip-rate-limit.decorator.js';
 })
 @UserRateLimit(10)
 export class InvitationsController {
-  constructor(private readonly invitations: InvitationsService) {}
+  constructor(
+    private readonly creation: InvitationCreationService,
+    private readonly management: InvitationManagementService,
+  ) {}
 
   @Post()
   @Header('Cache-Control', 'no-store')
@@ -43,7 +48,7 @@ export class InvitationsController {
     @Param('organizationId', ParseUUIDPipe) org: string,
     @Body() dto: CreateInvitationDto,
   ) {
-    return this.invitations.create(actor, org, dto);
+    return this.creation.create(actor, org, dto);
   }
 
   @Get()
@@ -56,7 +61,7 @@ export class InvitationsController {
     @Param('organizationId', ParseUUIDPipe) org: string,
     @Query() query: ListInvitationsQueryDto,
   ) {
-    return this.invitations.list(actor, org, query);
+    return this.management.list(actor, org, query);
   }
 
   @Post(':invitationId/resend')
@@ -68,7 +73,7 @@ export class InvitationsController {
     @Param('organizationId', ParseUUIDPipe) org: string,
     @Param('invitationId', ParseUUIDPipe) id: string,
   ) {
-    return this.invitations.resend(actor, org, id);
+    return this.management.resend(actor, org, id);
   }
 
   @Post(':invitationId/link')
@@ -82,7 +87,7 @@ export class InvitationsController {
     @Param('organizationId', ParseUUIDPipe) org: string,
     @Param('invitationId', ParseUUIDPipe) id: string,
   ) {
-    return this.invitations.copyLink(actor, org, id);
+    return this.management.copyLink(actor, org, id);
   }
 
   @Delete(':invitationId')
@@ -93,7 +98,7 @@ export class InvitationsController {
     @Param('organizationId', ParseUUIDPipe) org: string,
     @Param('invitationId', ParseUUIDPipe) id: string,
   ) {
-    return this.invitations.revoke(actor, org, id);
+    return this.management.revoke(actor, org, id);
   }
 }
 
@@ -101,7 +106,7 @@ export class InvitationsController {
 @ApiBearerAuth()
 @Controller('invitations')
 export class InvitationAcceptanceController {
-  constructor(private readonly invitations: InvitationsService) {}
+  constructor(private readonly acceptance: InvitationAcceptanceService) {}
 
   @Post('accept')
   @UserRateLimit(10)
@@ -111,6 +116,6 @@ export class InvitationAcceptanceController {
     summary: 'Accept using the invitation token and matching account email',
   })
   accept(@CurrentUser('id') actor: string, @Body() dto: AcceptInvitationDto) {
-    return this.invitations.accept(actor, dto.token);
+    return this.acceptance.accept(actor, dto.token);
   }
 }

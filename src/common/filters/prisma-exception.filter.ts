@@ -6,9 +6,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@/generated/prisma/client.js';
 import { HttpAdapterHost } from '@nestjs/core';
-import { randomUUID } from 'node:crypto';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import { requestContext } from '@/core/logging/request-context.js';
+import { currentRequestId } from '@/common/utils/request-id.util.js';
 
 @Catch(Prisma.PrismaClientKnownRequestError)
 export class PrismaClientExceptionFilter implements ExceptionFilter {
@@ -62,7 +61,7 @@ export class PrismaClientExceptionFilter implements ExceptionFilter {
           event: 'database.unhandled_error',
           code: exception.code,
           requestContext: {
-            requestId: requestContext.getStore()?.requestId ?? randomUUID(),
+            requestId: currentRequestId(),
           },
         });
         break;

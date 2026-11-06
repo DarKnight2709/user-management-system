@@ -484,7 +484,8 @@ the response contains the same detail fields as organization reads.
 
 `GET /organizations/:organizationId/members?page=1&limit=20` is an active-member
 directory. It requires ORGANIZATION_MEMBER read through the global guard and
-OrganizationMembersService; organization read alone is insufficient. Active
+OrganizationMembersService (removal and leave live in
+OrganizationMemberRemovalService); organization read alone is insufficient. Active
 owners pass through ownerId; platform admins have no membership bypass.
 Authorization, page, and count share one serializable transaction snapshot.
 Only ACTIVE, nondeleted memberships of nondeleted users in the target organization

@@ -18,7 +18,7 @@ import { INVITATION_EMAIL_QUEUE } from '../constants/email-queue.constant.js';
 import type { SendInvitationJobData } from '../interfaces/send-invitation-job.interface.js';
 import type { Job, Queue } from 'bullmq';
 import { envValidationSchema } from '@/core/config/env.validation.js';
-import { InvitationsService } from '../services/invitations.service.js';
+import { buildInvitationFlow } from './support/invitation-services.js';
 import type { PermissionsService } from '@/common/services/permissions.service.js';
 import type { Prisma } from '@/generated/prisma/client.js';
 import { safeEmailErrorDetails } from '../utils/email-error.util.js';
@@ -96,16 +96,16 @@ describe('Invitation acceptance token verification', () => {
       ) => operation(manager as unknown as Prisma.TransactionClient),
     } as unknown as PrismaService;
     const audit = vi.fn().mockResolvedValue({ id: 'audit' });
-    const service = new InvitationsService(
-      prisma,
-      {} as PermissionsService,
-      currentLinks,
-      {} as InvitationEmailService,
-      {
+    const service = buildInvitationFlow({
+      prisma: prisma,
+      permissions: {} as PermissionsService,
+      links: currentLinks,
+      email: {} as InvitationEmailService,
+      logging: {
         audit,
         publishCommittedAudit: vi.fn(),
       } as unknown as LoggingService,
-    );
+    });
     return { service, token, manager };
   }
 
