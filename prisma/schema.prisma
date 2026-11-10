@@ -266,5 +266,6 @@ model AuditEvent {
   @@index([targetType, targetId, occurredAt, eventId])
   @@index([action, occurredAt, eventId])
   @@index([organizationId, occurredAt, eventId])
+  @@index([occurredAt, eventId])
   @@map("audit_events")
 }
