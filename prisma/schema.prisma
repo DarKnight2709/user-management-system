@@ -97,6 +97,8 @@ model RefreshToken {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId], where: { revokedAt: null }, map: "refresh_tokens_user_id_active_idx")
+  @@index([familyId], where: { revokedAt: null }, map: "refresh_tokens_family_id_active_idx")
   @@map("refresh_tokens")
 }
 
