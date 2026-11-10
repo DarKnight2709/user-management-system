@@ -178,6 +178,30 @@ describe.runIf(runDatabaseTests)('Invitations database integration', () => {
     ).rejects.toMatchObject({ status: 409 });
   });
 
+  it('blocks inviting an existing member whose email differs only by case', async () => {
+    const member = await db.user.create({
+      data: {
+        email: 'existing@example.com',
+        username: randomUUID(),
+        firstName: 'Existing',
+        lastName: 'Member',
+        birthDate: new Date('2000-01-01'),
+        hashedPassword: 'fixture',
+      },
+    });
+    await db.organizationMember.create({
+      data: { organizationId, userId: member.id, status: 'ACTIVE' },
+    });
+    const { service } = createService();
+
+    await expect(
+      service.create(ownerId, organizationId, {
+        email: '  EXISTING@Example.com ',
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await db.organizationInvitation.count()).toBe(0);
+  });
+
   it('allows only one pending invitation when creation races', async () => {
     const first = createService().service;
     const second = createService().service;
