@@ -68,6 +68,7 @@ model User {
   platformRoles       UserPlatformRole[]
   invitationsSent     OrganizationInvitation[] @relation("InvitationSender")
 
+  @@index([createdAt(sort: Desc), id], where: { deletedAt: null }, map: "users_active_created_at_id_idx")
   @@map("users")
 }
 
