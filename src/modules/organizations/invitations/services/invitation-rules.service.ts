@@ -44,8 +44,9 @@ export class InvitationRulesService {
     organizationId: string,
     email: string,
   ): Promise<PreviousMembership> {
+    const normalized = email.trim().toLowerCase();
     const account = await manager.user.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' } },
+      where: { email: normalized },
       select: { id: true, deletedAt: true },
     });
     if (account?.deletedAt)

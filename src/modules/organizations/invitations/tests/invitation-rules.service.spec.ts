@@ -98,15 +98,27 @@ describe('InvitationRulesService.assertInvitableAccount', () => {
     ).resolves.toBeNull();
   });
 
-  it('looks accounts up case-insensitively', async () => {
+  it('looks accounts up by exact email so the unique index is used', async () => {
     const { rules, manager, tx } = setup();
 
     await rules.assertInvitableAccount(tx, organizationId, 'new@example.com');
 
     expect(manager.user.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { email: { equals: 'new@example.com', mode: 'insensitive' } },
-      }),
+      expect.objectContaining({ where: { email: 'new@example.com' } }),
+    );
+  });
+
+  it('normalizes the email to trimmed lowercase before the lookup', async () => {
+    const { rules, manager, tx } = setup();
+
+    await rules.assertInvitableAccount(
+      tx,
+      organizationId,
+      '  New@Example.COM ',
+    );
+
+    expect(manager.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { email: 'new@example.com' } }),
     );
   });
 

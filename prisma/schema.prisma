@@ -68,6 +68,7 @@ model User {
   platformRoles       UserPlatformRole[]
   invitationsSent     OrganizationInvitation[] @relation("InvitationSender")
 
+  @@index([createdAt(sort: Desc), id], where: { deletedAt: null }, map: "users_active_created_at_id_idx")
   @@map("users")
 }
 
@@ -97,6 +98,8 @@ model RefreshToken {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId], where: { revokedAt: null }, map: "refresh_tokens_user_id_active_idx")
+  @@index([familyId], where: { revokedAt: null }, map: "refresh_tokens_family_id_active_idx")
   @@map("refresh_tokens")
 }
 
@@ -264,5 +267,6 @@ model AuditEvent {
   @@index([targetType, targetId, occurredAt, eventId])
   @@index([action, occurredAt, eventId])
   @@index([organizationId, occurredAt, eventId])
+  @@index([occurredAt, eventId])
   @@map("audit_events")
 }
