@@ -6,6 +6,41 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { requestContext } from '@/core/logging/request-context.js';
+import { TransactionConflictException } from './transaction-conflict.exception.js';
+
+const MAX_TRANSACTION_ATTEMPTS = 3;
+export const MIN_RETRY_DELAY_MS = 10;
+export const MAX_RETRY_DELAY_MS = 50;
+
+const POSTGRES_SERIALIZATION_FAILURE = '40001';
+const POSTGRES_DEADLOCK_DETECTED = '40P01';
+
+/** Commit-time conflicts can escape the pg adapter without Prisma's P2034 wrapper. */
+function isTransactionConflict(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === 'P2034';
+  }
+  if (!(error instanceof Error) || error.name !== 'DriverAdapterError') {
+    return false;
+  }
+  const cause = error.cause;
+  return (
+    typeof cause === 'object' &&
+    cause !== null &&
+    'originalCode' in cause &&
+    (cause.originalCode === POSTGRES_SERIALIZATION_FAILURE ||
+      cause.originalCode === POSTGRES_DEADLOCK_DETECTED)
+  );
+}
+
+/** Random pause so transactions that just collided do not collide again in lockstep. */
+function pauseBeforeRetry(): Promise<void> {
+  const delayMs =
+    MIN_RETRY_DELAY_MS +
+    Math.floor(Math.random() * (MAX_RETRY_DELAY_MS - MIN_RETRY_DELAY_MS + 1));
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 @Injectable()
 export class PrismaService
   extends PrismaClient
@@ -102,33 +137,17 @@ export class PrismaService
   async serializableTransaction<T>(
     operation: (manager: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
-    const maxAttempts = 3;
-
     for (let attempt = 1; ; attempt++) {
       try {
         return await this.$transaction(operation, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
       } catch (error) {
-        // Commit-time conflicts can escape the pg adapter without Prisma's P2034 wrapper.
-        const driverCause =
-          error instanceof Error && error.name === 'DriverAdapterError'
-            ? error.cause
-            : undefined;
-        const isDriverConflict =
-          typeof driverCause === 'object' &&
-          driverCause !== null &&
-          'originalCode' in driverCause &&
-          (driverCause.originalCode === '40001' ||
-            driverCause.originalCode === '40P01');
-        const isTransactionConflict =
-          (error instanceof Prisma.PrismaClientKnownRequestError &&
-            error.code === 'P2034') ||
-          isDriverConflict;
-
-        if (!isTransactionConflict || attempt >= maxAttempts) {
-          throw error;
+        if (!isTransactionConflict(error)) throw error;
+        if (attempt >= MAX_TRANSACTION_ATTEMPTS) {
+          throw new TransactionConflictException(error);
         }
+        await pauseBeforeRetry();
       }
     }
   }

@@ -845,6 +845,12 @@ must be configured and verified separately.
 MinIO availability is not checked yet. This probe checks
 database connectivity and access to the users table, not every migration or business operation.
 
+### Database error responses
+
+- When concurrent writes keep conflicting after three attempts, the request is rolled back and returns HTTP 503 with a `Retry-After` header and `retryAfterSeconds` in the body. Nothing was changed, so the same request can be retried.
+- A duplicate username returns 409 `Username is already taken`; a duplicate email returns 409 `An account with these details already exists`. Other unique conflicts return `Resource already exists`. Responses never include database wording.
+- A 409 on registration still shows that the email or username is in use. Closing that gap requires email verification, which is not implemented.
+
 ### Authentication Flow in Swagger UI:
 
 1. Call `POST /auth/login` with your credentials (`email` and `password`).

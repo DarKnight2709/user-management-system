@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HttpException, type ArgumentsHost } from '@nestjs/common';
+import { TransactionConflictException } from '@/core/database/transaction-conflict.exception.js';
 import type { HttpAdapterHost } from '@nestjs/core';
 import { AllExceptionsFilter } from './all-exceptions.filter.js';
 import type { LoggingService } from '@/modules/logging/logging.service.js';
@@ -11,8 +12,9 @@ function fixture() {
   const response = {};
   const path = '/fixture?token=private-query';
   const reply = vi.fn();
+  const setHeader = vi.fn();
   const adapter = {
-    httpAdapter: { getRequestUrl: () => path, reply },
+    httpAdapter: { getRequestUrl: () => path, reply, setHeader },
   } as unknown as HttpAdapterHost;
   const host = {
     switchToHttp: () => ({
@@ -27,10 +29,70 @@ function fixture() {
     application,
     host,
     reply,
+    setHeader,
     response,
     path,
   };
 }
+
+describe('AllExceptionsFilter transaction conflicts', () => {
+  const conflict = () =>
+    new TransactionConflictException(new Error('private-driver-diagnostic'));
+
+  it('responds 503 with the retry hint in the body', () => {
+    const { filter, host, reply, response, path } = fixture();
+
+    requestContext.run({ requestId }, () => filter.catch(conflict(), host));
+
+    expect(reply).toHaveBeenCalledWith(
+      response,
+      {
+        statusCode: 503,
+        error: 'Service Unavailable',
+        message: 'The request conflicted with another operation. Retry later.',
+        retryAfterSeconds: 1,
+        timestamp: expect.any(String),
+        path,
+      },
+      503,
+    );
+  });
+
+  it('sets the Retry-After header', () => {
+    const { filter, host, setHeader, response } = fixture();
+
+    requestContext.run({ requestId }, () => filter.catch(conflict(), host));
+
+    expect(setHeader).toHaveBeenCalledExactlyOnceWith(
+      response,
+      'Retry-After',
+      '1',
+    );
+  });
+
+  it('logs the operational error without the driver diagnostic', () => {
+    const { filter, host, application } = fixture();
+
+    requestContext.run({ requestId }, () => filter.catch(conflict(), host));
+
+    expect(application).toHaveBeenCalledExactlyOnceWith({
+      event: 'http.operational_error',
+      statusCode: 503,
+      requestContext: { requestId },
+    });
+    expect(JSON.stringify(application.mock.calls)).not.toContain('private-');
+  });
+
+  it('does not add Retry-After to other 503 responses', () => {
+    const { filter, host, setHeader } = fixture();
+
+    requestContext.run({ requestId }, () =>
+      filter.catch(new HttpException('Unavailable', 503), host),
+    );
+
+    expect(setHeader).not.toHaveBeenCalled();
+  });
+});
 
 describe('AllExceptionsFilter safe logging', () => {
   it('keeps stack frames and standard error type without logging messages, URLs or properties', () => {

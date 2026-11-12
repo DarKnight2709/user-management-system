@@ -8,6 +8,7 @@ import { Prisma } from '@/generated/prisma/client.js';
 import { HttpAdapterHost } from '@nestjs/core';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { currentRequestId } from '@/common/utils/request-id.util.js';
+import { uniqueConflictMessage } from '@/core/database/unique-conflict-message.util.js';
 
 @Catch(Prisma.PrismaClientKnownRequestError)
 export class PrismaClientExceptionFilter implements ExceptionFilter {
@@ -35,10 +36,8 @@ export class PrismaClientExceptionFilter implements ExceptionFilter {
       // P2002: Unique constraint violation (e.g., duplicate email)
       case 'P2002': {
         status = HttpStatus.CONFLICT;
-        const target =
-          (exception.meta?.target as string[])?.join(', ') || 'field';
         error = 'Conflict';
-        message = `Unique constraint failed on: ${target}`;
+        message = uniqueConflictMessage(exception.meta);
         break;
       }
       // P2025: Record to update or delete not found
