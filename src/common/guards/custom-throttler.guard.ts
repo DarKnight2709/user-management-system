@@ -15,6 +15,9 @@ import { Response } from 'express';
 import type { Request } from 'express';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { currentRequestId } from '@/common/utils/request-id.util.js';
+import { EMAIL_RATE_LIMIT_KEY } from '@/common/decorators/email-rate-limit.decorator.js';
+
+const LOGIN_RATE_LIMIT_KEY = 'loginAccountRateLimit';
 
 // counter increments, expiration, limit checks, and blocking through its guard and storage.
 export class CustomThrottlerGuard extends ThrottlerGuard {
@@ -51,12 +54,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     requestProps: ThrottlerRequest,
   ): Promise<boolean> {
     if (requestProps.throttler.name === 'account') {
-      const enabled = this.reflector.getAllAndOverride<boolean>(
-        'loginAccountRateLimit',
-        [requestProps.context.getHandler(), requestProps.context.getClass()],
-      );
-
-      if (!enabled) {
+      if (!this.isAccountRateLimited(requestProps.context)) {
         return true;
       }
 
@@ -83,6 +81,14 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     return this.handleRequestAndLogThrottle(requestProps);
   }
 
+  /** Login and email-keyed routes (forgot password) share the per-email policy. */
+  private isAccountRateLimited(context: ExecutionContext): boolean {
+    const targets = [context.getHandler(), context.getClass()];
+    return [LOGIN_RATE_LIMIT_KEY, EMAIL_RATE_LIMIT_KEY].some(
+      (key) => this.reflector.getAllAndOverride<boolean>(key, targets) === true,
+    );
+  }
+
   private async handleRequestAndLogThrottle(
     requestProps: ThrottlerRequest,
     overrides: Partial<Pick<ThrottlerRequest, 'getTracker'>> = {},
@@ -91,7 +97,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
       return await super.handleRequest({ ...requestProps, ...overrides });
     } catch (error) {
       const isLogin = this.reflector.getAllAndOverride<boolean>(
-        'loginAccountRateLimit',
+        LOGIN_RATE_LIMIT_KEY,
         [requestProps.context.getHandler(), requestProps.context.getClass()],
       );
       if (

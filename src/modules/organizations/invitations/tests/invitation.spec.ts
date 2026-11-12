@@ -4,7 +4,7 @@ import { InputValidationPipe } from '@/common/pipes/validation.pipe.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { InvitationEmailService } from '../services/invitation-email.service.js';
 import { InvitationDeliveryService } from '../services/invitation-delivery.service.js';
-import { EmailService } from '../services/email.service.js';
+import { EmailService } from '@/core/email/email.service.js';
 import { InvitationLinksService } from '../services/invitation-links.service.js';
 import {
   AcceptInvitationDto,
@@ -21,7 +21,7 @@ import { envValidationSchema } from '@/core/config/env.validation.js';
 import { buildInvitationFlow } from './support/invitation-services.js';
 import type { PermissionsService } from '@/common/services/permissions.service.js';
 import type { Prisma } from '@/generated/prisma/client.js';
-import { safeEmailErrorDetails } from '../utils/email-error.util.js';
+import { safeEmailErrorDetails } from '@/core/email/email-error.util.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 
 const config = new ConfigService({
@@ -513,6 +513,7 @@ describe('Always-on email configuration', () => {
     S3_PUBLIC_URL: 'http://storage.invalid',
     FRONTEND_URL: 'http://frontend.invalid',
     INVITATION_TOKEN_SECRET: 'c'.repeat(64),
+    ACCOUNT_TOKEN_SECRET: 'd'.repeat(64),
     REDIS_HOST: '127.0.0.1',
     SMTP_HOST: 'smtp.invalid',
     SMTP_FROM: 'fixture@example.com',
@@ -525,11 +526,38 @@ describe('Always-on email configuration', () => {
   it.each([
     'FRONTEND_URL',
     'INVITATION_TOKEN_SECRET',
+    'ACCOUNT_TOKEN_SECRET',
     'REDIS_HOST',
     'SMTP_HOST',
     'SMTP_FROM',
   ])('requires %s on every startup', (field) => {
     const result = envValidationSchema.validate({ ...valid, [field]: '' });
     expect(result.error?.details[0].path).toEqual([field]);
+  });
+  describe('ACCOUNT_TOKEN_SECRET', () => {
+    const validate = (secret: string) =>
+      envValidationSchema.validate({ ...valid, ACCOUNT_TOKEN_SECRET: secret });
+    it('accepts 64 characters', () => {
+      expect(validate('d'.repeat(64)).error).toBeUndefined();
+    });
+    it('rejects fewer than 64 characters', () => {
+      expect(validate('d'.repeat(63)).error?.details[0].path).toEqual([
+        'ACCOUNT_TOKEN_SECRET',
+      ]);
+    });
+    it('rejects whitespace', () => {
+      expect(
+        validate(`${'d'.repeat(32)} ${'d'.repeat(32)}`).error?.details[0].path,
+      ).toEqual(['ACCOUNT_TOKEN_SECRET']);
+    });
+    it.each([
+      ['the access token secret', 'a'.repeat(64)],
+      ['the refresh token secret', 'b'.repeat(64)],
+      ['the invitation secret', 'c'.repeat(64)],
+    ])('rejects reusing %s', (_, secret) => {
+      expect(validate(secret).error?.details[0].path).toEqual([
+        'ACCOUNT_TOKEN_SECRET',
+      ]);
+    });
   });
 });

@@ -50,6 +50,7 @@ jobs:
         -e JWT_ACCESS_TOKEN_SECRET=dast-jwt-access-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG
         -e JWT_REFRESH_TOKEN_SECRET=dast-jwt-refresh-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG
         -e INVITATION_TOKEN_SECRET=dast-invitation-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG
+        -e ACCOUNT_TOKEN_SECRET=dast-account-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJ
         -e S3_ENDPOINT=http://localhost:9000
         -e S3_BUCKET=ums-dast
         -e S3_ACCESS_KEY=dast-access

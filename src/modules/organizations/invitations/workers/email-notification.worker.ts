@@ -5,8 +5,9 @@ import { EmailJobNames } from '@/common/enums/email-job-names.enum.js';
 import { INVITATION_EMAIL_QUEUE } from '../constants/email-queue.constant.js';
 import type { SendInvitationJobData } from '../interfaces/send-invitation-job.interface.js';
 import { InvitationDeliveryService } from '../services/invitation-delivery.service.js';
-import { safeEmailErrorDetails } from '../utils/email-error.util.js';
+import { safeEmailErrorDetails } from '@/core/email/email-error.util.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
+import { jobAttemptLogFields } from '@/core/queues/job-attempt.util.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -58,7 +59,7 @@ export class EmailNotificationWorker
       event: 'email.job_failed',
       queue: INVITATION_EMAIL_QUEUE,
       ...this.jobReferenceLogFields(reference),
-      ...this.attemptLogFields(job),
+      ...jobAttemptLogFields(job),
     });
   }
 
@@ -108,23 +109,6 @@ export class EmailNotificationWorker
     reference: JobReference | undefined,
   ): Partial<JobReference> {
     return reference ?? {};
-  }
-
-  private attemptLogFields(
-    job: Job,
-  ): { attempt?: number; maxAttempts?: number } {
-    const attempt =
-      Number.isInteger(job.attemptsMade) && job.attemptsMade > 0
-        ? job.attemptsMade
-        : undefined;
-    const maxAttempts =
-      typeof job.opts.attempts === 'number' &&
-      Number.isInteger(job.opts.attempts) &&
-      job.opts.attempts > 0
-        ? job.opts.attempts
-        : undefined;
-
-    return attempt && maxAttempts ? { attempt, maxAttempts } : {};
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

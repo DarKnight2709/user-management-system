@@ -148,7 +148,7 @@ Compose từ chối khởi động nếu thiếu các biến bắt buộc dướ
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | minio, minio-init | Tài khoản quản trị MinIO |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | minio-init, backend | Tài khoản riêng của ứng dụng; phải khác `MINIO_ROOT_USER` |
 
-Các biến còn lại do ứng dụng bắt buộc khi khởi động (`src/core/config/env.validation.ts`): hai JWT secret (khác nhau, tối thiểu 64 ký tự), `INVITATION_TOKEN_SECRET`, `FRONTEND_URL`, `REDIS_HOST`, `SMTP_HOST`, `SMTP_FROM`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_PUBLIC_URL`. `NODE_ENV=production` phải được đặt rõ ràng, vì mặc định là development.
+Các biến còn lại do ứng dụng bắt buộc khi khởi động (`src/core/config/env.validation.ts`): hai JWT secret (khác nhau, tối thiểu 64 ký tự), `INVITATION_TOKEN_SECRET`, `ACCOUNT_TOKEN_SECRET` (signs password reset links), `FRONTEND_URL`, `REDIS_HOST`, `SMTP_HOST`, `SMTP_FROM`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_PUBLIC_URL`. `NODE_ENV=production` phải được đặt rõ ràng, vì mặc định là development.
 
 Khi tạo giá trị mới, dùng chuỗi hex hoặc chữ-số, tránh `$`, `#`, dấu nháy và khoảng trắng vì compose nội suy `.env`.
 
@@ -188,6 +188,8 @@ Quy tắc khi viết migration mới: phải chạy được với **cả bản 
 | Giai đoạn 2–4 (#58, #59, #60) | Sửa code ứng dụng (login, validation, lỗi HTTP), không đổi hạ tầng; riêng giai đoạn 4 thêm 503 + `Retry-After` khi xung đột transaction |
 | Giai đoạn 5a (`chore/deploy-hardening`, #61) | `scripts/deploy.sh` (backup, tag theo SHA, rollback image), Redis AOF + giới hạn bộ nhớ, healthcheck postgres/redis, gỡ `ServeStaticModule` |
 | Giai đoạn 5b (`chore/prod-credentials-hardening`) | Mật khẩu Redis, mật khẩu Grafana từ biến môi trường, tài khoản MinIO riêng cho ứng dụng |
+| Giai đoạn 6 (`fix/data-lifecycle-cleanup`) | Job dọn refresh token hết hạn, đóng pool database khi shutdown |
+| Giai đoạn 7a (`feat/password-forget`) | Quên và đặt lại mật khẩu: bảng `user_security_tokens`, queue BullMQ thứ hai `account-email`, biến môi trường mới `ACCOUNT_TOKEN_SECRET` (bắt buộc, thêm vào `ENV_PRODUCTION` trước khi merge) |
 
 ## 11. Điều tôi không biết hoặc chưa kiểm chứng
 

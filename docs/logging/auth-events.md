@@ -26,6 +26,21 @@
 - Lỗi logging không thay đổi phản hồi 401; chỉ xuất Winston -> Docker -> Alloy -> Loki.
 - Các application event auth.refresh_failed và auth.logout_failed được xử lý sau.
 
+## auth.password_reset.requested
+
+- Trigger: yêu cầu quên mật khẩu khớp một tài khoản đang hoạt động và token đặt lại đã được lưu (`PasswordResetService`).
+- actor: ANONYMOUS (người yêu cầu chưa đăng nhập); target: USER với ID tài khoản.
+- outcome: SUCCESS; level: info; requestContext như các event auth khác.
+- Không phát cho email không có tài khoản, để log cũng không phân biệt hai trường hợp theo dõi từ bên ngoài.
+- Không ghi email, token, hash hay đường dẫn. Event không khẳng định email đã được gửi hay đã đến nơi.
+
+## auth.password_reset.failed
+
+- Trigger: `POST /auth/reset-password` bị từ chối vì token không dùng được (không tồn tại, đã dùng, hết hạn, tài khoản đã xoá hoặc bị dùng trước bởi yêu cầu khác).
+- actor: ANONYMOUS; reasonCode: INVALID_OR_EXPIRED_TOKEN; outcome: FAILURE; level: warn.
+- Không ghi token, mật khẩu mới hay lý do chi tiết: mọi trường hợp dùng chung một mã để log và phản hồi không phân biệt được chúng.
+- Không phát khi body sai định dạng (422) hay khi lỗi hệ thống.
+
 ## Quy tắc chung
 
 - Category: security.

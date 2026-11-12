@@ -24,6 +24,7 @@ import { requestContext } from './core/logging/request-context.js';
 import { redactSensitiveData } from './core/logging/redact-log.format.js';
 import { classifyUncataloguedLogs } from './core/logging/classify-uncatalogued-log.format.js';
 import { AuditModule } from './modules/audit/audit.module.js';
+import { AccountSecurityModule } from './modules/account-security/account-security.module.js';
 @Module({
   imports: [
     BullModule.forRootAsync({
@@ -92,6 +93,7 @@ import { AuditModule } from './modules/audit/audit.module.js';
     HealthModule,
     OrganizationsModule,
     AuditModule,
+    AccountSecurityModule,
   ],
   controllers: [AppController],
   providers: [

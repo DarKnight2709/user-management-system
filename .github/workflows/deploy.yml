@@ -41,6 +41,7 @@ jobs:
       JWT_ACCESS_TOKEN_SECRET: 'test-jwt-access-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
       JWT_REFRESH_TOKEN_SECRET: 'test-jwt-refresh-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
       INVITATION_TOKEN_SECRET: 'test-invitation-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFG'
+      ACCOUNT_TOKEN_SECRET: 'test-account-secret-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJ'
       S3_ENDPOINT: http://localhost:9000
       S3_BUCKET: ums-test
       S3_ACCESS_KEY: test-access
@@ -50,6 +51,7 @@ jobs:
       REDIS_HOST: localhost
       SMTP_HOST: localhost
       SMTP_FROM: test@example.com
+      RUN_ACCOUNT_SECURITY_E2E_TESTS: 'true'
       RUN_AUTH_E2E_TESTS: 'true'
       RUN_USERS_E2E_TESTS: 'true'
       RUN_AUDIT_E2E_TESTS: 'true'

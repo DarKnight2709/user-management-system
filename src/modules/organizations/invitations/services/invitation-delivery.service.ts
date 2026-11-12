@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import type { Prisma } from '@/generated/prisma/client.js';
 import { InvitationLinksService } from './invitation-links.service.js';
-import { EmailService } from './email.service.js';
+import { EmailService } from '@/core/email/email.service.js';
 import type { SendInvitationJobData } from '../interfaces/send-invitation-job.interface.js';
-import { safeEmailErrorDetails } from '../utils/email-error.util.js';
+import { safeEmailErrorDetails } from '@/core/email/email-error.util.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import type { InvitationDeliveryStage } from '@/modules/logging/types/application-event.types.js';
 
@@ -83,12 +83,12 @@ export class InvitationDeliveryService {
   ): invitation is DeliveryInvitation {
     return Boolean(
       invitation &&
-        invitation.status === 'PENDING' &&
-        invitation.expiresAt > new Date() &&
-        invitation.deliveryVersion === version &&
-        invitation.deliveryStatus !== 'SENT' &&
-        invitation.organization.isActive &&
-        !invitation.organization.deletedAt,
+      invitation.status === 'PENDING' &&
+      invitation.expiresAt > new Date() &&
+      invitation.deliveryVersion === version &&
+      invitation.deliveryStatus !== 'SENT' &&
+      invitation.organization.isActive &&
+      !invitation.organization.deletedAt,
     );
   }
 

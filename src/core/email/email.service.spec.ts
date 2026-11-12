@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
-import { EmailService } from '../services/email.service.js';
+import { EmailService } from './email.service.js';
 
 describe('EmailService', () => {
   const sendMail = vi.fn();
@@ -52,6 +52,63 @@ describe('EmailService', () => {
         expiresAt: new Date(),
       }),
     ).rejects.toThrow('Recipient was not accepted');
+  });
+
+  describe('password reset email', () => {
+    const message = {
+      to: 'user@example.com',
+      resetLink: 'https://frontend.invalid/reset-password#token=abc',
+      expiresAt: new Date('2026-01-01T00:30:00.000Z'),
+    };
+
+    it('is plain text with the link and its expiry', async () => {
+      sendMail.mockResolvedValue({ accepted: ['user@example.com'] });
+
+      await service.sendPasswordResetEmail(message);
+
+      expect(sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from: 'sender@example.com',
+          to: 'user@example.com',
+          subject: 'Reset your password',
+          disableFileAccess: true,
+          disableUrlAccess: true,
+          text: expect.stringContaining(message.resetLink),
+        }),
+      );
+    });
+
+    it('states when the link expires', async () => {
+      sendMail.mockResolvedValue({ accepted: ['user@example.com'] });
+
+      await service.sendPasswordResetEmail(message);
+
+      expect(sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('2026-01-01T00:30:00.000Z'),
+        }),
+      );
+    });
+
+    it('tells the reader to ignore it when they did not ask', async () => {
+      sendMail.mockResolvedValue({ accepted: ['user@example.com'] });
+
+      await service.sendPasswordResetEmail(message);
+
+      expect(sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('If you did not ask for this'),
+        }),
+      );
+    });
+
+    it('rejects a provider response without accepted recipients', async () => {
+      sendMail.mockResolvedValue({ accepted: [] });
+
+      await expect(service.sendPasswordResetEmail(message)).rejects.toThrow(
+        'Recipient was not accepted',
+      );
+    });
   });
 
   it('closes the SMTP transport during application shutdown', () => {

@@ -114,7 +114,7 @@ const userAuditEventSchema = Joi.object({
   requestContext: Joi.object({ requestId: idSchema }).required(),
 });
 
-const userRegistrationAuditEventSchema = Joi.object({
+const anonymousUserAuditEventSchema = Joi.object({
   actor: Joi.object({
     type: Joi.string().valid('ANONYMOUS').required(),
   }).required(),
@@ -169,10 +169,20 @@ export const auditEventSchema = Joi.alternatives<AuditEventInput>()
     auditLogAccessEventSchema.keys({
       action: Joi.string().valid('audit.log.viewed').required(),
     }),
-    userRegistrationAuditEventSchema.keys({
+    anonymousUserAuditEventSchema.keys({
       action: Joi.string().valid('user.registered').required(),
       payload: Joi.object({
         registrationMethod: Joi.string().valid('PASSWORD').required(),
+      }).required(),
+    }),
+    anonymousUserAuditEventSchema.keys({
+      action: Joi.string().valid('user.password.reset').required(),
+      payload: Joi.object({
+        revokedRefreshTokenCount: Joi.number()
+          .integer()
+          .min(0)
+          .max(Number.MAX_SAFE_INTEGER)
+          .required(),
       }).required(),
     }),
     userAuditEventSchema.keys({

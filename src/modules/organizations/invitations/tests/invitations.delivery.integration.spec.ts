@@ -18,7 +18,7 @@ import { PrismaClient } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { InvitationDeliveryService } from '../services/invitation-delivery.service.js';
 import { InvitationLinksService } from '../services/invitation-links.service.js';
-import type { EmailService } from '../services/email.service.js';
+import type { EmailService } from '@/core/email/email.service.js';
 import type { LoggingService } from '@/modules/logging/logging.service.js';
 
 const runDeliveryTests = process.env.RUN_INVITATION_DELIVERY_TESTS === 'true';
@@ -154,9 +154,7 @@ describe.runIf(runDeliveryTests)('Invitation delivery integration', () => {
       new ConfigService({ INVITATION_TOKEN_SECRET: tokenSecret }),
     );
     const email = {
-      sendInvitationEmail: vi
-        .fn()
-        .mockRejectedValue(new Error('SMTP failure')),
+      sendInvitationEmail: vi.fn().mockRejectedValue(new Error('SMTP failure')),
     };
     const logging = { application: vi.fn() };
     const service = new InvitationDeliveryService(

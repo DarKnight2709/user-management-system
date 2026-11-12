@@ -52,6 +52,16 @@ export const envValidationSchema = Joi.object({
     )
     .empty('')
     .required(),
+  ACCOUNT_TOKEN_SECRET: Joi.string()
+    .min(64)
+    .pattern(/\s/, { invert: true })
+    .invalid(
+      Joi.ref('JWT_ACCESS_TOKEN_SECRET'),
+      Joi.ref('JWT_REFRESH_TOKEN_SECRET'),
+      Joi.ref('INVITATION_TOKEN_SECRET'),
+    )
+    .empty('')
+    .required(),
   REDIS_HOST: Joi.string().empty('').required(),
   REDIS_PORT: Joi.number().port().empty('').default(6379),
   REDIS_PASSWORD: Joi.string().empty(''),
