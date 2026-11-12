@@ -73,6 +73,18 @@ export type AuthSecurityEventInput =
       requestContext: SecurityRequestContext;
     }
   | {
+      action: 'auth.password_reset.requested';
+      actor: { type: 'ANONYMOUS' };
+      target: { type: 'USER'; id: string };
+      requestContext: SecurityRequestContext;
+    }
+  | {
+      action: 'auth.password_reset.failed';
+      actor: { type: 'ANONYMOUS' };
+      reasonCode: 'INVALID_OR_EXPIRED_TOKEN';
+      requestContext: SecurityRequestContext;
+    }
+  | {
       action: 'auth.login.throttled';
       actor: {
         type: 'ANONYMOUS';

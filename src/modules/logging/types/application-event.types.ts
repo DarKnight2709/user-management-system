@@ -95,11 +95,11 @@ export type ApplicationEventInput =
     } & SafeEmailErrorFields)
   | ({
       event: 'email.worker_error';
-      queue: 'invitation-email';
+      queue: EmailQueueName;
     } & SafeEmailErrorFields)
   | {
       event: 'email.job_failed';
-      queue: 'invitation-email';
+      queue: EmailQueueName;
       invitationId?: string;
       version?: number;
       attempt?: number;
@@ -111,6 +111,20 @@ export type ApplicationEventInput =
       invitationId: string;
       version: number;
     }
+  | {
+      event: 'account_email.queue_unavailable';
+      queue: 'account-email';
+    }
+  | {
+      event: 'account_email.enqueue_unavailable';
+      queue: 'account-email';
+      kind: AccountEmailKind;
+    }
+  | ({
+      event: 'account_email.delivery_failed';
+      kind: AccountEmailKind;
+      stage: AccountEmailDeliveryStage;
+    } & SafeEmailErrorFields)
   | {
       event: 'application.started';
       port: number;
@@ -198,6 +212,13 @@ type SafeEmailErrorFields = {
   code: SafeEmailErrorCode;
   responseCode?: number;
 };
+
+export type EmailQueueName = 'invitation-email' | 'account-email';
+
+export type AccountEmailKind = 'password-reset';
+
+export type AccountEmailDeliveryStage =
+  'database-read' | 'link-configuration' | 'smtp-send';
 
 export type InvitationDeliveryStage =
   | 'database-read'

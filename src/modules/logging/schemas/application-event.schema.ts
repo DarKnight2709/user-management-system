@@ -16,6 +16,13 @@ const databaseQueryFields = {
   requestContext: optionalRequestContextSchema,
 };
 
+const emailQueueSchema = Joi.string().valid(
+  'invitation-email',
+  'account-email',
+);
+
+const accountEmailKindSchema = Joi.string().valid('password-reset');
+
 const backgroundErrorCategorySchema = Joi.string().valid(
   'database',
   'timeout',
@@ -232,11 +239,11 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
     Joi.object({
       ...safeEmailErrorFields,
       event: Joi.string().valid('email.worker_error').required(),
-      queue: Joi.string().valid('invitation-email').required(),
+      queue: emailQueueSchema.required(),
     }),
     Joi.object({
       event: Joi.string().valid('email.job_failed').required(),
-      queue: Joi.string().valid('invitation-email').required(),
+      queue: emailQueueSchema.required(),
       invitationId: Joi.string().uuid(),
       version: Joi.number().integer().min(1),
       attempt: Joi.number().integer().min(1),
@@ -249,6 +256,23 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
       queue: Joi.string().valid('invitation-email').required(),
       invitationId: Joi.string().uuid().required(),
       version: Joi.number().integer().min(1).required(),
+    }),
+    Joi.object({
+      event: Joi.string().valid('account_email.queue_unavailable').required(),
+      queue: Joi.string().valid('account-email').required(),
+    }),
+    Joi.object({
+      event: Joi.string().valid('account_email.enqueue_unavailable').required(),
+      queue: Joi.string().valid('account-email').required(),
+      kind: accountEmailKindSchema.required(),
+    }),
+    Joi.object({
+      ...safeEmailErrorFields,
+      event: Joi.string().valid('account_email.delivery_failed').required(),
+      kind: accountEmailKindSchema.required(),
+      stage: Joi.string()
+        .valid('database-read', 'link-configuration', 'smtp-send')
+        .required(),
     }),
     Joi.object({
       event: Joi.string().valid('application.started').required(),

@@ -845,6 +845,15 @@ must be configured and verified separately.
 MinIO availability is not checked yet. This probe checks
 database connectivity and access to the users table, not every migration or business operation.
 
+### Password reset
+
+For people who can no longer sign in. It has two steps:
+
+1. `POST /auth/forgot-password` with `{ "email": "user@example.com" }`. The answer is always `202` with the same message, whether or not the address belongs to an account, so the endpoint cannot be used to find out who is registered. If it does, a link is emailed **to that address only**; the caller cannot choose where it goes. Requests are limited to 5 per IP per minute and 3 per address per hour (`429` with `Retry-After`).
+2. `POST /auth/reset-password` with `{ "token": "...", "newPassword": "..." }` (the same password rules as registration) answers `204`. The token comes from the link, which looks like `<FRONTEND_URL>/reset-password#token=...`; the frontend reads the token from the fragment and posts it. A wrong, used, expired or replaced token always gets `400 Invalid or expired token`.
+
+A token works once and expires after 30 minutes; asking again replaces the earlier link. A successful reset signs the account out everywhere (all refresh tokens are revoked) and is recorded in the audit log. Access tokens that were already issued keep working until they expire (15 minutes by default). Set `ACCOUNT_TOKEN_SECRET` (at least 64 characters, different from every other secret) in `.env`. Email delivery uses the same SMTP settings as invitations; a mail that fails to send is retried three times and is otherwise not reported to the caller.
+
 ### Database error responses
 
 - When concurrent writes keep conflicting after three attempts, the request is rolled back and returns HTTP 503 with a `Retry-After` header and `retryAfterSeconds` in the body. Nothing was changed, so the same request can be retried.

@@ -112,7 +112,8 @@ private. Deployments must explicitly set `NODE_ENV=production`.
   registers the queue; InvitationEmailService uses InjectQueue to produce jobs;
   EmailNotificationWorker uses Processor/WorkerHost/OnWorkerEvent to consume them.
   InvitationDeliveryService checks lifecycle state and records delivery results;
-  EmailService owns Nodemailer SMTP. Worker concurrency is 3.
+  EmailService owns Nodemailer SMTP (it lives in `src/core/email/` and is shared
+  with the account emails of `modules/account-security`). Worker concurrency is 3.
 - InvitationQueueModule is always imported and queue injection is required.
   FRONTEND_URL, INVITATION_TOKEN_SECRET, REDIS_HOST, SMTP_HOST, and SMTP_FROM are
   required on every startup. Queue failures still return emailQueued=false;

@@ -6,6 +6,8 @@ export type AuthEventName =
   | 'auth.password.changed'
   | 'auth.refresh_token.reuse_detected'
   | 'auth.logout.completed'
+  | 'auth.password_reset.requested'
+  | 'auth.password_reset.failed'
   | 'auth.login.throttled';
 
 type AuthEventPolicy = {
@@ -25,6 +27,8 @@ type AuthEventPolicy = {
     | 'password-change-committed'
     | 'revoked-refresh-token-reused'
     | 'logout-revocation-committed'
+    | 'password-reset-requested'
+    | 'password-reset-token-rejected'
     | 'login-rate-limit-exceeded';
 
   onLoggingFailure: 'preserve-authentication-result';
@@ -103,6 +107,28 @@ export const AUTH_EVENT_POLICIES = {
     outcome: 'SUCCESS',
     level: 'info',
     emitWhen: 'logout-revocation-committed',
+    onLoggingFailure: 'preserve-authentication-result',
+  },
+
+  'auth.password_reset.requested': {
+    schemaVersion: 1,
+    category: 'security',
+    output: 'winston-console',
+    persistToPostgres: false,
+    outcome: 'SUCCESS',
+    level: 'info',
+    emitWhen: 'password-reset-requested',
+    onLoggingFailure: 'preserve-authentication-result',
+  },
+
+  'auth.password_reset.failed': {
+    schemaVersion: 1,
+    category: 'security',
+    output: 'winston-console',
+    persistToPostgres: false,
+    outcome: 'FAILURE',
+    level: 'warn',
+    emitWhen: 'password-reset-token-rejected',
     onLoggingFailure: 'preserve-authentication-result',
   },
 

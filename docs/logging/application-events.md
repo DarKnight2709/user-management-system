@@ -148,6 +148,19 @@ logging failures.
   (`RefreshTokenCleanupService`). The run stops; the next hourly run continues.
   No error message, token, user ID or database diagnostic is included.
 
+## Account email diagnostics
+
+- `account_email.queue_unavailable` (queue `account-email`): the queue reported an
+  error; without a listener it would be thrown as an unhandled event.
+- `account_email.enqueue_unavailable` (queue, kind `password-reset`): the job
+  was not accepted within three seconds. The request still succeeds, because the
+  caller must not learn whether an address has an account.
+- `account_email.delivery_failed` (kind, stage `database-read`, `link-configuration`
+  or `smtp-send`, plus the safe email error code and SMTP response code): a delivery
+  attempt failed and BullMQ will retry it. The error text, address, link and token are never logged.
+- `email.worker_error` and `email.job_failed` now accept queue `account-email`
+  as well as `invitation-email`. Account jobs carry only a token id, so they log no job reference.
+
 ## auth.logout_session_failed
 
 - Category: application; level: error; schemaVersion: 1.

@@ -4,7 +4,7 @@ export type AuditRequestContext = {
 
 type UserAuditActor = { type: 'USER'; id: string };
 
-type AnonymousUserRegistrationAuditEvent = {
+type AnonymousUserAuditEvent = {
   actor: { type: 'ANONYMOUS' };
   target: { type: 'USER'; id: string };
   requestContext: AuditRequestContext;
@@ -116,9 +116,13 @@ type OrganizationInvitationAuditEvent = {
 
 export type AuditEventInput =
   | AuditLogAccessEvent
-  | (AnonymousUserRegistrationAuditEvent & {
+  | (AnonymousUserAuditEvent & {
       action: 'user.registered';
       payload: { registrationMethod: 'PASSWORD' };
+    })
+  | (AnonymousUserAuditEvent & {
+      action: 'user.password.reset';
+      payload: { revokedRefreshTokenCount: number };
     })
   | (UserAuditEvent & {
       action: 'user.profile.updated';

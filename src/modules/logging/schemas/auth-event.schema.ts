@@ -92,6 +92,25 @@ export const authSecurityEventSchema =
         requestContext: securityRequestContextSchema,
       }),
       Joi.object({
+        action: Joi.string().valid('auth.password_reset.requested').required(),
+        actor: Joi.object({
+          type: Joi.string().valid('ANONYMOUS').required(),
+        }).required(),
+        target: Joi.object({
+          type: Joi.string().valid('USER').required(),
+          id: idSchema,
+        }).required(),
+        requestContext: securityRequestContextSchema,
+      }),
+      Joi.object({
+        action: Joi.string().valid('auth.password_reset.failed').required(),
+        actor: Joi.object({
+          type: Joi.string().valid('ANONYMOUS').required(),
+        }).required(),
+        reasonCode: Joi.string().valid('INVALID_OR_EXPIRED_TOKEN').required(),
+        requestContext: securityRequestContextSchema,
+      }),
+      Joi.object({
         action: Joi.string().valid('auth.login.throttled').required(),
         actor: Joi.object({
           type: Joi.string().valid('ANONYMOUS').required(),
