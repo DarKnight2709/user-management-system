@@ -11,6 +11,7 @@ export type PreviousMembership = {
 export type ActiveInvitationUser = {
   id: string;
   email: string;
+  emailVerifiedAt: Date | null;
 };
 
 export type CreateInvitationInput = {

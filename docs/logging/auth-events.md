@@ -41,6 +41,12 @@
 - Không ghi token, mật khẩu mới hay lý do chi tiết: mọi trường hợp dùng chung một mã để log và phản hồi không phân biệt được chúng.
 - Không phát khi body sai định dạng (422) hay khi lỗi hệ thống.
 
+## auth.email_verification.failed
+
+- Trigger: `POST /auth/verify-email` bị từ chối vì token không dùng được (không tồn tại, đã dùng, hết hạn, thay thế, tài khoản đã xoá hoặc bị dùng trước).
+- actor: ANONYMOUS; reasonCode: INVALID_OR_EXPIRED_TOKEN; outcome: FAILURE; level: warn.
+- Không ghi token hay lý do chi tiết. Không phát khi body sai định dạng (422) hay lỗi hệ thống.
+
 ## Quy tắc chung
 
 - Category: security.

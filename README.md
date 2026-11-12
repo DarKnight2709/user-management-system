@@ -854,11 +854,21 @@ For people who can no longer sign in. It has two steps:
 
 A token works once and expires after 30 minutes; asking again replaces the earlier link. A successful reset signs the account out everywhere (all refresh tokens are revoked) and is recorded in the audit log. Access tokens that were already issued keep working until they expire (15 minutes by default). Set `ACCOUNT_TOKEN_SECRET` (at least 64 characters, different from every other secret) in `.env`. Email delivery uses the same SMTP settings as invitations; a mail that fails to send is retried three times and is otherwise not reported to the caller.
 
+### Email verification
+
+Accounts start unverified (`emailVerifiedAt` is `null`; `GET /users` responses include it). Registration emails a link `<FRONTEND_URL>/verify-email#token=...` valid for 24 hours.
+
+- `POST /auth/verify-email` with `{ "token": "..." }` (public) answers `204`; a wrong, used, expired or replaced token always gets `400 Invalid or expired token`.
+- `POST /auth/resend-verification` (signed in) answers `202` and sends a fresh link, which replaces the earlier one; at most 3 per hour. It does nothing once the account is verified.
+- Unverified accounts can sign in but cannot accept organization invitations (`403`).
+- Changing the email with `PUT /users` marks the account unverified again and emails a link to the new address.
+- Existing accounts are not marked verified automatically; they must use the resend endpoint.
+
 ### Database error responses
 
 - When concurrent writes keep conflicting after three attempts, the request is rolled back and returns HTTP 503 with a `Retry-After` header and `retryAfterSeconds` in the body. Nothing was changed, so the same request can be retried.
 - A duplicate username returns 409 `Username is already taken`; a duplicate email returns 409 `An account with these details already exists`. Other unique conflicts return `Resource already exists`. Responses never include database wording.
-- A 409 on registration still shows that the email or username is in use. Closing that gap requires email verification, which is not implemented.
+- A 409 on registration still shows that the email or username is in use. Verifying emails does not close that gap, because registration still answers 409 for a taken address.
 
 ### Data retention
 

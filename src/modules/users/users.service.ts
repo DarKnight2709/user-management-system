@@ -12,6 +12,7 @@ import type { UserModel } from '@/generated/prisma/models/User.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { currentRequestId } from '@/common/utils/request-id.util.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
+import { EmailVerificationService } from '@/modules/account-security/services/email-verification.service.js';
 
 @Injectable()
 export class UsersService {
@@ -20,6 +21,7 @@ export class UsersService {
     private readonly s3Service: S3Service,
     private readonly permissions: PermissionsService,
     private readonly logging: LoggingService,
+    private readonly emailVerification: EmailVerificationService,
   ) {}
 
   private toUserResponse(
@@ -164,7 +166,7 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
-    const { user, auditEvent } =
+    const { user, auditEvent, verificationTokenId } =
       await this.prismaService.serializableTransaction(async (manager) => {
         const current = await manager.user.findUnique({
           where: { id, deletedAt: null },
@@ -193,13 +195,19 @@ export class UsersService {
         });
 
         if (changedFields.length === 0)
-          return { user: current, auditEvent: null };
+          return { user: current, auditEvent: null, verificationTokenId: null };
 
+        // A new address is unproven: it loses the verified state and gets its own
+        // link, which replaces any link sent for the old address.
+        const emailChanged = changedFields.includes('email');
         const updated = await manager.user.update({
           where: { id, deletedAt: null },
-          data,
+          data: emailChanged ? { ...data, emailVerifiedAt: null } : data,
           omit: { hashedPassword: true },
         });
+        const verification = emailChanged
+          ? await this.emailVerification.issueFor(manager, id)
+          : null;
         const auditEvent = await this.logging.audit(
           {
             action: 'user.profile.updated',
@@ -211,10 +219,17 @@ export class UsersService {
           manager,
         );
 
-        return { user: updated, auditEvent };
+        return {
+          user: updated,
+          auditEvent,
+          verificationTokenId: verification?.id ?? null,
+        };
       });
 
     if (auditEvent) this.logging.publishCommittedAudit(auditEvent);
+    if (verificationTokenId) {
+      await this.emailVerification.enqueue(verificationTokenId);
+    }
     return this.toUserResponse(user);
   }
 }

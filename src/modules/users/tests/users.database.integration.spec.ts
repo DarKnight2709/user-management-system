@@ -14,6 +14,7 @@ import type { PrismaService } from '@/core/database/prisma.service.js';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import type { S3Service } from '@/core/storage/s3.service.js';
 import type { LoggingService } from '@/modules/logging/logging.service.js';
+import type { EmailVerificationService } from '@/modules/account-security/services/email-verification.service.js';
 import {
   clearOrganizationTables,
   createFixtureUser,
@@ -114,7 +115,18 @@ describe.runIf(runDatabaseTests)('Users database integration', () => {
       getPublicUrl: (key: string | null) =>
         key ? `https://cdn.test/${key}` : null,
     } as unknown as S3Service;
-    users = new UsersService(database.prisma, s3, permissions, loggingService);
+    // Email verification has its own integration spec; here it is a stand-in.
+    const emailVerification = {
+      issueFor: vi.fn().mockResolvedValue({ id: randomUUID() }),
+      enqueue: vi.fn().mockResolvedValue(true),
+    } as unknown as EmailVerificationService;
+    users = new UsersService(
+      database.prisma,
+      s3,
+      permissions,
+      loggingService,
+      emailVerification,
+    );
     deletion = new UserDeletionService(
       database.prisma,
       permissions,

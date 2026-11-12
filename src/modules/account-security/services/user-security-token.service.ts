@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@/generated/prisma/client.js';
 import type { UserSecurityTokenType } from '@/generated/prisma/enums.js';
 import { SECURITY_TOKEN_LINK_PATHS } from '../constants/account-security.constant.js';
+import { InvalidSecurityTokenException } from '../invalid-security-token.exception.js';
 
 const MIN_SECRET_LENGTH = 64;
 
@@ -60,6 +61,58 @@ export class UserSecurityTokenService {
       },
     });
     return { id, expiresAt };
+  }
+
+  /**
+   * Cheap pre-check for a token that was sent in a request. The decision that
+   * counts is `consume`, inside the transaction.
+   */
+  async isUsable(
+    client: Prisma.TransactionClient,
+    type: UserSecurityTokenType,
+    tokenHash: string,
+  ): Promise<boolean> {
+    const token = await client.userSecurityToken.findUnique({
+      where: { tokenHash },
+      select: {
+        type: true,
+        consumedAt: true,
+        expiresAt: true,
+        user: { select: { deletedAt: true } },
+      },
+    });
+    return (
+      token !== null &&
+      token.type === type &&
+      token.consumedAt === null &&
+      token.expiresAt > new Date() &&
+      token.user.deletedAt === null
+    );
+  }
+
+  /**
+   * Uses the token up and returns the account it belongs to. The update only
+   * matches an unused, unexpired token, so of two simultaneous requests only
+   * one succeeds. Throws the one generic error for every other case.
+   */
+  async consume(
+    manager: Prisma.TransactionClient,
+    type: UserSecurityTokenType,
+    tokenHash: string,
+  ): Promise<string> {
+    const token = await manager.userSecurityToken.findUnique({
+      where: { tokenHash },
+      select: { id: true, userId: true },
+    });
+    if (!token) throw new InvalidSecurityTokenException();
+
+    const now = new Date();
+    const consumed = await manager.userSecurityToken.updateMany({
+      where: { id: token.id, type, consumedAt: null, expiresAt: { gt: now } },
+      data: { consumedAt: now },
+    });
+    if (consumed.count !== 1) throw new InvalidSecurityTokenException();
+    return token.userId;
   }
 
   private frontendOrigin(): string {

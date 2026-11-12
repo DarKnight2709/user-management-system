@@ -155,4 +155,47 @@ describe.runIf(runE2eTests)('Account security API (e2e)', () => {
       }).expect(422);
     });
   });
+
+  describe('email verification', () => {
+    let app: INestApplication;
+
+    beforeAll(async () => {
+      app = await startApp();
+    }, 30_000);
+
+    afterAll(async () => {
+      await app?.close();
+    });
+
+    const verify = (body: unknown) =>
+      request(app.getHttpServer())
+        .post('/auth/verify-email')
+        .send(body as object);
+
+    it('refuses a well-formed token that was never issued with 400', async () => {
+      const response = await verify({ token: VALID_TOKEN });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('gives the same generic message for an unknown token', async () => {
+      const response = await verify({ token: VALID_TOKEN });
+
+      expect(response.body.message).toBe('Invalid or expired token');
+    });
+
+    it('rejects a malformed token with 422', async () => {
+      await verify({ token: 'short' }).expect(422);
+    });
+
+    it('rejects unexpected fields with 422', async () => {
+      await verify({ token: VALID_TOKEN, userId: randomUUID() }).expect(422);
+    });
+
+    it('requires authentication to ask for another link', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/resend-verification')
+        .expect(401);
+    });
+  });
 });

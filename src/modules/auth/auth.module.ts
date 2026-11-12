@@ -6,13 +6,19 @@ import { PasswordService } from './services/password.service.js';
 import { RefreshTokenCleanupService } from './services/refresh-token-cleanup.service.js';
 import { TokenService } from './services/token.service.js';
 import { UsersModule } from '../users/users.module.js';
+import { AccountSecurityModule } from '../account-security/account-security.module.js';
 import { LocalStrategy } from './strategies/local.strategy.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
-  imports: [UsersModule, PassportModule, ThrottlerModule],
+  imports: [
+    UsersModule,
+    AccountSecurityModule,
+    PassportModule,
+    ThrottlerModule,
+  ],
   controllers: [AuthController],
   providers: [
     AuthService,

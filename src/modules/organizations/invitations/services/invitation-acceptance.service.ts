@@ -113,10 +113,16 @@ export class InvitationAcceptanceService {
   ): Promise<ActiveInvitationUser> {
     const user = await manager.user.findUnique({
       where: { id: actorId, deletedAt: null },
-      select: { id: true, email: true },
+      select: { id: true, email: true, emailVerifiedAt: true },
     });
     if (!user) {
       throw new UnauthorizedException('Authentication required');
+    }
+    // The invitation went to a mailbox; only a verified address proves it is theirs.
+    if (!user.emailVerifiedAt) {
+      throw new ForbiddenException(
+        'Verify your email address before accepting an invitation',
+      );
     }
     return user;
   }

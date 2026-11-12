@@ -190,6 +190,7 @@ Quy tắc khi viết migration mới: phải chạy được với **cả bản 
 | Giai đoạn 5b (`chore/prod-credentials-hardening`) | Mật khẩu Redis, mật khẩu Grafana từ biến môi trường, tài khoản MinIO riêng cho ứng dụng |
 | Giai đoạn 6 (`fix/data-lifecycle-cleanup`) | Job dọn refresh token hết hạn, đóng pool database khi shutdown |
 | Giai đoạn 7a (`feat/password-forget`) | Quên và đặt lại mật khẩu: bảng `user_security_tokens`, queue BullMQ thứ hai `account-email`, biến môi trường mới `ACCOUNT_TOKEN_SECRET` (bắt buộc, thêm vào `ENV_PRODUCTION` trước khi merge) |
+| Giai đoạn 7b (`feat/email-verification`) | Xác minh email: cột `users.email_verified_at`, token loại `EMAIL_VERIFICATION` (24 giờ) dùng lại queue `account-email`, migration viết tay `20261112150000_add_email_verification` (chỉ thêm, tương thích bản trước). Không có biến môi trường mới |
 
 ## 11. Điều tôi không biết hoặc chưa kiểm chứng
 

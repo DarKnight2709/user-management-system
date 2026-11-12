@@ -111,6 +111,14 @@ export const authSecurityEventSchema =
         requestContext: securityRequestContextSchema,
       }),
       Joi.object({
+        action: Joi.string().valid('auth.email_verification.failed').required(),
+        actor: Joi.object({
+          type: Joi.string().valid('ANONYMOUS').required(),
+        }).required(),
+        reasonCode: Joi.string().valid('INVALID_OR_EXPIRED_TOKEN').required(),
+        requestContext: securityRequestContextSchema,
+      }),
+      Joi.object({
         action: Joi.string().valid('auth.login.throttled').required(),
         actor: Joi.object({
           type: Joi.string().valid('ANONYMOUS').required(),

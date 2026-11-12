@@ -1,7 +1,7 @@
 import { UnrecoverableError, type Job } from 'bullmq';
 import { describe, expect, it, vi } from 'vitest';
 import type { LoggingService } from '@/modules/logging/logging.service.js';
-import type { PasswordResetDeliveryService } from '../services/password-reset-delivery.service.js';
+import type { SecurityTokenEmailDeliveryService } from '../services/security-token-email-delivery.service.js';
 import { AccountEmailWorker } from '../workers/account-email.worker.js';
 
 vi.mock('@/core/database/prisma.service.js', () => ({
@@ -12,7 +12,7 @@ function setup() {
   const deliver = vi.fn().mockResolvedValue(undefined);
   const application = vi.fn();
   const worker = new AccountEmailWorker(
-    { deliver } as unknown as PasswordResetDeliveryService,
+    { deliver } as unknown as SecurityTokenEmailDeliveryService,
     { application } as unknown as LoggingService,
   );
   return { worker, deliver, application };
@@ -28,7 +28,19 @@ describe('AccountEmailWorker', () => {
 
       await worker.process(job('send-password-reset'));
 
-      expect(deliver).toHaveBeenCalledExactlyOnceWith({ tokenId: 'id' });
+      expect(deliver).toHaveBeenCalledExactlyOnceWith('PASSWORD_RESET', {
+        tokenId: 'id',
+      });
+    });
+
+    it('hands an email verification job to the delivery service', async () => {
+      const { worker, deliver } = setup();
+
+      await worker.process(job('send-email-verification'));
+
+      expect(deliver).toHaveBeenCalledExactlyOnceWith('EMAIL_VERIFICATION', {
+        tokenId: 'id',
+      });
     });
 
     it('rejects an unknown job without retrying it', async () => {

@@ -44,9 +44,10 @@ unique index; expired pending rows are marked EXPIRED when creating a replacemen
 Expired status in list responses is derived immediately, without a cleanup job.
 
 Possession of the invitation capability plus matching account email is required.
-The application does not yet have a general verified-email feature: do not label
-this as account-wide email verification. A link shared by an authorized inviter
-is intentionally an alternate delivery channel.
+The accepting account must also have a verified email (`emailVerifiedAt`);
+otherwise acceptance answers 403. Accepting an invitation does not verify the
+account. A link shared by an authorized inviter is intentionally an alternate
+delivery channel.
 
 ## Configuration
 

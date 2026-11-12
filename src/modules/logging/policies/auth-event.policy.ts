@@ -8,6 +8,7 @@ export type AuthEventName =
   | 'auth.logout.completed'
   | 'auth.password_reset.requested'
   | 'auth.password_reset.failed'
+  | 'auth.email_verification.failed'
   | 'auth.login.throttled';
 
 type AuthEventPolicy = {
@@ -29,6 +30,7 @@ type AuthEventPolicy = {
     | 'logout-revocation-committed'
     | 'password-reset-requested'
     | 'password-reset-token-rejected'
+    | 'email-verification-token-rejected'
     | 'login-rate-limit-exceeded';
 
   onLoggingFailure: 'preserve-authentication-result';
@@ -129,6 +131,17 @@ export const AUTH_EVENT_POLICIES = {
     outcome: 'FAILURE',
     level: 'warn',
     emitWhen: 'password-reset-token-rejected',
+    onLoggingFailure: 'preserve-authentication-result',
+  },
+
+  'auth.email_verification.failed': {
+    schemaVersion: 1,
+    category: 'security',
+    output: 'winston-console',
+    persistToPostgres: false,
+    outcome: 'FAILURE',
+    level: 'warn',
+    emitWhen: 'email-verification-token-rejected',
     onLoggingFailure: 'preserve-authentication-result',
   },
 

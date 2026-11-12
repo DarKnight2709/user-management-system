@@ -21,7 +21,10 @@ const emailQueueSchema = Joi.string().valid(
   'account-email',
 );
 
-const accountEmailKindSchema = Joi.string().valid('password-reset');
+const accountEmailKindSchema = Joi.string().valid(
+  'password-reset',
+  'email-verification',
+);
 
 const backgroundErrorCategorySchema = Joi.string().valid(
   'database',

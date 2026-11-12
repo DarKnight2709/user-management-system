@@ -85,6 +85,12 @@ export type AuthSecurityEventInput =
       requestContext: SecurityRequestContext;
     }
   | {
+      action: 'auth.email_verification.failed';
+      actor: { type: 'ANONYMOUS' };
+      reasonCode: 'INVALID_OR_EXPIRED_TOKEN';
+      requestContext: SecurityRequestContext;
+    }
+  | {
       action: 'auth.login.throttled';
       actor: {
         type: 'ANONYMOUS';

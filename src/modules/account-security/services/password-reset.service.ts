@@ -54,7 +54,9 @@ export class PasswordResetService {
     const tokenHash = this.tokens.hash(token);
 
     // Cheap check first, so junk tokens never cost a password hash.
-    if (!(await this.isUsable(tokenHash))) {
+    if (
+      !(await this.tokens.isUsable(this.prisma, 'PASSWORD_RESET', tokenHash))
+    ) {
       this.rejectToken(ipAddress, userAgent);
     }
 
@@ -98,26 +100,7 @@ export class PasswordResetService {
       target: { type: 'USER', id: user.id },
       requestContext: authRequestContext(ipAddress, userAgent),
     });
-    await this.emailQueue.enqueuePasswordReset(token.id);
-  }
-
-  private async isUsable(tokenHash: string): Promise<boolean> {
-    const token = await this.prisma.userSecurityToken.findUnique({
-      where: { tokenHash },
-      select: {
-        type: true,
-        consumedAt: true,
-        expiresAt: true,
-        user: { select: { deletedAt: true } },
-      },
-    });
-    return (
-      token !== null &&
-      token.type === 'PASSWORD_RESET' &&
-      token.consumedAt === null &&
-      token.expiresAt > new Date() &&
-      token.user.deletedAt === null
-    );
+    await this.emailQueue.enqueue('password-reset', token.id);
   }
 
   private async applyReset(
@@ -125,42 +108,29 @@ export class PasswordResetService {
     tokenHash: string,
     hashedPassword: string,
   ) {
-    const token = await manager.userSecurityToken.findUnique({
-      where: { tokenHash },
-      select: { id: true, userId: true },
-    });
-    if (!token) throw new InvalidSecurityTokenException();
-
-    const now = new Date();
-    // Only one of two simultaneous resets can use the token.
-    const consumed = await manager.userSecurityToken.updateMany({
-      where: {
-        id: token.id,
-        type: 'PASSWORD_RESET',
-        consumedAt: null,
-        expiresAt: { gt: now },
-      },
-      data: { consumedAt: now },
-    });
-    if (consumed.count !== 1) throw new InvalidSecurityTokenException();
+    const userId = await this.tokens.consume(
+      manager,
+      'PASSWORD_RESET',
+      tokenHash,
+    );
 
     const updated = await manager.user.updateMany({
-      where: { id: token.userId, deletedAt: null },
+      where: { id: userId, deletedAt: null },
       data: { hashedPassword },
     });
     // A deleted account rolls the whole transaction back, token included.
     if (updated.count !== 1) throw new InvalidSecurityTokenException();
 
     const revoked = await manager.refreshToken.updateMany({
-      where: { userId: token.userId, revokedAt: null },
-      data: { revokedAt: now },
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
     });
 
     return this.logging.audit(
       {
         action: 'user.password.reset',
         actor: { type: 'ANONYMOUS' },
-        target: { type: 'USER', id: token.userId },
+        target: { type: 'USER', id: userId },
         payload: { revokedRefreshTokenCount: revoked.count },
         requestContext: { requestId: currentRequestId() },
       },

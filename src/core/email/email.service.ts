@@ -7,6 +7,7 @@ const SMTP_GREETING_TIMEOUT_MS = 5_000;
 const SMTP_SOCKET_TIMEOUT_MS = 10_000;
 const INVITATION_EMAIL_SUBJECT = 'Organization invitation';
 const PASSWORD_RESET_EMAIL_SUBJECT = 'Reset your password';
+const EMAIL_VERIFICATION_SUBJECT = 'Verify your email address';
 
 export interface InvitationEmailMessage {
   to: string;
@@ -18,6 +19,12 @@ export interface InvitationEmailMessage {
 export interface PasswordResetEmailMessage {
   to: string;
   resetLink: string;
+  expiresAt: Date;
+}
+
+export interface EmailVerificationMessage {
+  to: string;
+  verifyLink: string;
   expiresAt: Date;
 }
 
@@ -37,6 +44,12 @@ export class EmailService implements OnApplicationShutdown {
     message: PasswordResetEmailMessage,
   ): Promise<void> {
     await this.send(this.createPasswordResetEmail(message));
+  }
+
+  async sendEmailVerificationEmail(
+    message: EmailVerificationMessage,
+  ): Promise<void> {
+    await this.send(this.createEmailVerificationEmail(message));
   }
 
   onApplicationShutdown(): void {
@@ -105,6 +118,21 @@ export class EmailService implements OnApplicationShutdown {
       '',
       `The link expires: ${expiresAt.toISOString()}`,
       'If you did not ask for this, ignore this email. Your password stays the same.',
+    ]);
+  }
+
+  private createEmailVerificationEmail({
+    to,
+    verifyLink,
+    expiresAt,
+  }: EmailVerificationMessage) {
+    return this.createMail(to, EMAIL_VERIFICATION_SUBJECT, [
+      'Confirm that this address belongs to your account.',
+      '',
+      verifyLink,
+      '',
+      `The link expires: ${expiresAt.toISOString()}`,
+      'If you did not create an account or change your email, ignore this email.',
     ]);
   }
 
