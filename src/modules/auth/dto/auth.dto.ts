@@ -1,23 +1,20 @@
 import { Transform } from 'class-transformer';
 import {
   IsByteLength,
-  IsDate,
   IsEmail,
   IsJWT,
   IsNotEmpty,
   IsString,
   MaxLength,
-  MinLength,
 } from 'class-validator';
-import {
-  EMAIL_MAX_LENGTH,
-  LOGIN_PASSWORD_MAX_BYTES,
-} from '../constants/auth.constant.js';
+import { EMAIL_MAX_LENGTH } from '@/common/constants/account-field.constant.js';
+import { trimAndLowercase } from '@/common/utils/string-transform.util.js';
+import { UserProfileDto } from '@/modules/users/dto/user-profile.dto.js';
+import { LOGIN_PASSWORD_MAX_BYTES } from '../constants/auth.constant.js';
+import { IsNewPassword } from '../decorators/is-new-password.decorator.js';
 
 export class LoginDto {
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim().toLowerCase() : value,
-  )
+  @Transform(trimAndLowercase)
   @IsEmail()
   @IsNotEmpty()
   @MaxLength(EMAIL_MAX_LENGTH)
@@ -38,41 +35,7 @@ export class RefreshTokenDto {
   refreshToken: string;
 }
 
-export class RegisterDto {
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim().toLowerCase() : value,
-  )
-  @IsString()
-  @MinLength(1)
-  @IsNotEmpty()
-  username: string;
-
-  @IsString()
-  @MinLength(1)
-  @IsNotEmpty()
-  firstName: string;
-
-  @IsString()
-  @MinLength(1)
-  @IsNotEmpty()
-  lastName: string;
-
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim().toLowerCase() : value,
-  )
-  @IsEmail()
-  @IsNotEmpty()
-  email: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(15)
-  @IsByteLength(0, 72, {
-    message: 'password must not exceed 72 UTF-8 bytes',
-  })
+export class RegisterDto extends UserProfileDto {
+  @IsNewPassword()
   password: string;
-
-  @IsDate()
-  @IsNotEmpty()
-  birthDate: Date;
 }
