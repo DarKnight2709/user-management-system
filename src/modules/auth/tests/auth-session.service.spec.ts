@@ -5,20 +5,32 @@ import { LoggingService } from '@/modules/logging/logging.service.js';
 import { createPrismaStub } from '../../../../test/support/prisma-stub.js';
 import { AuthSessionService } from '../services/auth-session.service.js';
 import { TokenService } from '../services/token.service.js';
+import { toCredentialRef } from '../utils/credential-ref.util.js';
 
 vi.mock('@/core/database/prisma.service.js', () => ({
   PrismaService: class {},
 }));
+
+const STORED_HASH = 'stored-bcrypt-hash';
 
 const user = {
   id: '123e4567-e89b-42d3-a456-426614174001',
   username: 'alice',
   email: 'alice@example.com',
 };
+// What credential validation hands to login for the password it just matched.
+const authenticatedUser = {
+  ...user,
+  credentialRef: toCredentialRef(STORED_HASH),
+};
 
 function setup() {
   const manager = {
-    user: { findUnique: vi.fn().mockResolvedValue({ ...user }) },
+    user: {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue({ ...user, hashedPassword: STORED_HASH }),
+    },
     refreshToken: {
       findUnique: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -77,8 +89,23 @@ describe('AuthSessionService.login', () => {
     const ctx = setup();
     ctx.manager.user.findUnique.mockResolvedValue(null);
 
-    await expect(ctx.service.login(user)).rejects.toMatchObject({
+    await expect(ctx.service.login(authenticatedUser)).rejects.toMatchObject({
       status: 401,
+    });
+    expect(ctx.manager.refreshToken.create).not.toHaveBeenCalled();
+    expect(ctx.logging.security).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the password changed after credential validation', async () => {
+    const ctx = setup();
+    ctx.manager.user.findUnique.mockResolvedValue({
+      ...user,
+      hashedPassword: 'hash-after-password-change',
+    });
+
+    await expect(ctx.service.login(authenticatedUser)).rejects.toMatchObject({
+      status: 401,
+      message: 'Invalid credentials',
     });
     expect(ctx.manager.refreshToken.create).not.toHaveBeenCalled();
     expect(ctx.logging.security).not.toHaveBeenCalled();
@@ -87,7 +114,11 @@ describe('AuthSessionService.login', () => {
   it('starts a new session family and logs the success', async () => {
     const ctx = setup();
 
-    const pair = await ctx.service.login(user, '10.0.0.1', 'agent');
+    const pair = await ctx.service.login(
+      authenticatedUser,
+      '10.0.0.1',
+      'agent',
+    );
 
     expect(pair.accessToken).toBeTruthy();
     const { data } = ctx.manager.refreshToken.create.mock.calls[0][0] as {
