@@ -853,6 +853,8 @@ database connectivity and access to the users table, not every migration or busi
 4. Paste the access token into the HTTP Bearer authorization field and click **Authorize**.
 5. Call protected endpoints. Authentication does not bypass permission checks: `/users` requires USER read, while profile and avatar operations use the current identity.
 
+Login validates its body before checking credentials: a missing or non-string `email`/`password`, an unexpected field, or an oversized value returns 422 and never reaches password hashing. A wrong password and an unknown email both return the same 401 after the same hashing work, so response time does not reveal which emails have accounts. If the password changes while a login is in progress, the login returns 401 and no session is issued.
+
 ---
 
 ## 🧪 Testing & Code Quality

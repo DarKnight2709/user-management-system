@@ -9,6 +9,10 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  EMAIL_MAX_LENGTH,
+  LOGIN_PASSWORD_MAX_BYTES,
+} from '../constants/auth.constant.js';
 
 export class LoginDto {
   @Transform(({ value }: { value: unknown }) =>
@@ -16,10 +20,14 @@ export class LoginDto {
   )
   @IsEmail()
   @IsNotEmpty()
+  @MaxLength(EMAIL_MAX_LENGTH)
   email: string;
 
   @IsString()
   @IsNotEmpty()
+  @IsByteLength(1, LOGIN_PASSWORD_MAX_BYTES, {
+    message: `password must not exceed ${LOGIN_PASSWORD_MAX_BYTES} bytes`,
+  })
   password: string;
 }
 

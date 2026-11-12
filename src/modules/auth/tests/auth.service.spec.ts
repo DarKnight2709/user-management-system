@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { compare } from '@/common/utils/hash.util.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { UsersService } from '@/modules/users/users.service.js';
 import { AuthService } from '../auth.service.js';
 import type { RegisterDto } from '../dto/auth.dto.js';
+import { toCredentialRef } from '../utils/credential-ref.util.js';
 
 vi.mock('@/modules/users/users.service.js', () => ({ UsersService: class {} }));
 vi.mock('@/common/utils/hash.util.js', () => ({
@@ -37,16 +39,79 @@ describe('AuthService.validateUser', () => {
     vi.clearAllMocks();
   });
 
-  it('returns only public identity fields for valid credentials', async () => {
+  it('returns the identity of the matched account', async () => {
     const { service } = setup();
 
-    await expect(
-      service.validateUser('alice@example.com', 'correct-password-123'),
-    ).resolves.toEqual({
+    const result = await service.validateUser(
+      'alice@example.com',
+      'correct-password-123',
+    );
+
+    expect(result).toMatchObject({
       id: storedUser.id,
       username: 'alice',
       email: 'alice@example.com',
     });
+  });
+
+  it('binds the result to the password it matched', async () => {
+    const { service } = setup();
+
+    const result = await service.validateUser(
+      'alice@example.com',
+      'correct-password-123',
+    );
+
+    expect(result.credentialRef).toBe(
+      toCredentialRef(storedUser.hashedPassword),
+    );
+  });
+
+  it('never returns the stored hash', async () => {
+    const { service } = setup();
+
+    const result = await service.validateUser(
+      'alice@example.com',
+      'correct-password-123',
+    );
+
+    expect(JSON.stringify(result)).not.toContain(storedUser.hashedPassword);
+  });
+
+  it('spends a bcrypt comparison on unknown emails so latency does not reveal them', async () => {
+    const { service, users } = setup();
+    users.findOneByEmail.mockResolvedValue(null);
+
+    await service.validateUser('nobody@example.com', 'whatever').catch(() => {
+      // expected rejection
+    });
+
+    expect(compare).toHaveBeenCalledTimes(1);
+    expect(compare).toHaveBeenCalledWith('whatever', expect.any(String));
+  });
+
+  it('compares unknown emails against a generated hash, not a stored one', async () => {
+    const { service, users } = setup();
+    users.findOneByEmail.mockResolvedValue(null);
+
+    await service.validateUser('nobody@example.com', 'whatever').catch(() => {
+      // expected rejection
+    });
+
+    expect(compare).not.toHaveBeenCalledWith(
+      expect.anything(),
+      storedUser.hashedPassword,
+    );
+  });
+
+  it('never accepts an unknown email even if the password matches the dummy hash', async () => {
+    const { service, users } = setup();
+    users.findOneByEmail.mockResolvedValue(null);
+    vi.mocked(compare).mockResolvedValueOnce(true);
+
+    await expect(
+      service.validateUser('nobody@example.com', 'whatever'),
+    ).rejects.toMatchObject({ status: 401 });
   });
 
   it('gives unknown emails and wrong passwords the same error and log', async () => {

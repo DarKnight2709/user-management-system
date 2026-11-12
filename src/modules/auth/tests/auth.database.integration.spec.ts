@@ -23,6 +23,7 @@ import { AuthSessionService } from '../services/auth-session.service.js';
 import { PasswordService } from '../services/password.service.js';
 import { TokenService } from '../services/token.service.js';
 import type { ChangePasswordDto } from '../dto/change-password.dto.js';
+import { toCredentialRef } from '../utils/credential-ref.util.js';
 
 const runDatabaseTests = process.env.RUN_DATABASE_TESTS === 'true';
 
@@ -41,7 +42,20 @@ describe.runIf(runDatabaseTests)('Auth database integration', () => {
   const activeTokens = (userId = user.id) =>
     db.refreshToken.count({ where: { userId, revokedAt: null } });
 
-  const login = () => sessions.login(user, '10.0.0.1', 'agent');
+  /** Mirrors credential validation: bind the login to the password stored now. */
+  const authenticated = async (target = user) => {
+    const stored = await db.user.findUniqueOrThrow({
+      where: { id: target.id },
+      select: { hashedPassword: true },
+    });
+    return {
+      ...target,
+      credentialRef: toCredentialRef(stored.hashedPassword),
+    };
+  };
+
+  const login = async () =>
+    sessions.login(await authenticated(), '10.0.0.1', 'agent');
 
   const tokenRow = (token: string) =>
     db.refreshToken.findUniqueOrThrow({
@@ -123,6 +137,38 @@ describe.runIf(runDatabaseTests)('Auth database integration', () => {
       const second = await tokenRow((await login()).refreshToken);
 
       expect(first.familyId).not.toBe(second.familyId);
+    });
+
+    it('refuses a login validated against a password that has since changed', async () => {
+      // Credentials were verified against the old password...
+      const validated = await authenticated();
+      // ...then the owner changed it, which revoked every session.
+      await change();
+      expect(await activeTokens()).toBe(0);
+
+      await expect(
+        sessions.login(validated, '10.0.0.1', 'agent'),
+      ).rejects.toMatchObject({ status: 401, message: 'Invalid credentials' });
+
+      // No session survives the password change.
+      await expect(db.refreshToken.count()).resolves.toBe(0);
+      expect(JSON.stringify(securityLog.mock.calls)).not.toContain(
+        'auth.login.succeeded',
+      );
+    });
+
+    it('never leaves a session behind when login and a password change overlap', async () => {
+      const validated = await authenticated();
+
+      const results = await Promise.allSettled([
+        sessions.login(validated, '10.0.0.1', 'agent'),
+        change(),
+      ]);
+
+      // The change always succeeds; the login may win the race only if its
+      // session is revoked by the change that follows it.
+      expect(results[1].status).toBe('fulfilled');
+      await expect(activeTokens()).resolves.toBe(0);
     });
 
     it('refuses deleted accounts and stores no token', async () => {
@@ -287,7 +333,11 @@ describe.runIf(runDatabaseTests)('Auth database integration', () => {
       await login();
       await login();
       await sessions.login(
-        { id: other.id, username: other.username, email: other.email },
+        await authenticated({
+          id: other.id,
+          username: other.username,
+          email: other.email,
+        }),
         undefined,
         undefined,
       );

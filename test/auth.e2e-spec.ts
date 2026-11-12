@@ -57,8 +57,19 @@ describe.runIf(runE2eTests)('Auth API (e2e)', () => {
     expect(JSON.stringify(response.body)).not.toMatch(/not found|no user/i);
   });
 
-  it('rejects login bodies missing credentials', async () => {
-    await request(app.getHttpServer()).post('/auth/login').send({}).expect(401);
+  it('rejects login bodies missing credentials with a validation error', async () => {
+    await request(app.getHttpServer()).post('/auth/login').send({}).expect(422);
+  });
+
+  it.each([
+    ['a numeric email', { email: 12345, password: 'wrong-password-123' }],
+    ['an object email', { email: { $ne: '' }, password: 'wrong-password-123' }],
+    ['a numeric password', { email: 'nobody@example.invalid', password: 1 }],
+  ])('rejects %s instead of failing with a server error', async (_, body) => {
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send(body)
+      .expect(422);
   });
 
   it('rejects an invalid registration body before creating anything', async () => {
