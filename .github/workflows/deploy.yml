@@ -50,6 +50,9 @@ jobs:
       REDIS_HOST: localhost
       SMTP_HOST: localhost
       SMTP_FROM: test@example.com
+      RUN_AUTH_E2E_TESTS: 'true'
+      RUN_USERS_E2E_TESTS: 'true'
+      RUN_AUDIT_E2E_TESTS: 'true'
       RUN_DATABASE_TESTS: 'true'
       RUN_ADMIN_ORGANIZATION_E2E_TESTS: 'true'
       RUN_INVITATION_E2E_TESTS: 'true'
@@ -86,6 +89,11 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
 
+      # E2E suites boot the full app against this throwaway database; some
+      # requests (e.g. login) query the users table even when they are rejected.
+      - name: Apply database migrations
+        run: npx prisma migrate deploy --config prisma7.config.ts
+
       - name: Run E2E tests
         run: npm run test:e2e
   secret-scan:
@@ -120,10 +128,11 @@ jobs:
           scan-type: fs
           scan-ref: .
           format: table
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: os,library
           scanners: vuln,misconfig
+          severity: HIGH,CRITICAL
   semgrep:
     name: Semgrep SAST
     runs-on: ubuntu-latest
