@@ -183,6 +183,10 @@ export const applicationEventSchema = Joi.alternatives<ApplicationEventInput>()
       errorCategory: backgroundErrorCategorySchema.required(),
     }),
     Joi.object({
+      event: Joi.string().valid('auth.refresh_token_cleanup_failed').required(),
+      errorCategory: backgroundErrorCategorySchema.required(),
+    }),
+    Joi.object({
       event: Joi.string()
         .valid('avatar.cleanup_retry_scheduling_failed')
         .required(),

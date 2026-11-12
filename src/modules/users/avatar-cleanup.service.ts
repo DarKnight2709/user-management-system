@@ -1,10 +1,9 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { backgroundErrorCategory } from '@/common/utils/background-error-category.util.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { S3Service } from '@/core/storage/s3.service.js';
-import { Prisma } from '@/generated/prisma/client.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import type { BackgroundErrorCategory } from '@/modules/logging/types/application-event.types.js';
 
 @Injectable()
 export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
@@ -36,7 +35,7 @@ export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
     this.activeRun = this.processBatch().catch((error: unknown) => {
       this.logging.application({
         event: 'avatar.cleanup_worker_failed',
-        errorCategory: this.getErrorCategory(error),
+        errorCategory: backgroundErrorCategory(error),
       });
     });
     try {
@@ -102,8 +101,8 @@ export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
             event: 'avatar.cleanup_retry_scheduling_failed',
             taskId: task.id,
             attempt: task.attempts + 1,
-            errorCategory: this.getErrorCategory(error),
-            schedulingErrorCategory: this.getErrorCategory(schedulingError),
+            errorCategory: backgroundErrorCategory(error),
+            schedulingErrorCategory: backgroundErrorCategory(schedulingError),
           });
           throw schedulingError;
         }
@@ -112,38 +111,10 @@ export class AvatarCleanupService implements OnModuleInit, OnModuleDestroy {
           event: 'avatar.cleanup_retry_scheduled',
           taskId: task.id,
           attempt: task.attempts + 1,
-          errorCategory: this.getErrorCategory(error),
+          errorCategory: backgroundErrorCategory(error),
           retryDelayMs: delayMs,
         });
       }
-    }
-  }
-
-  private getErrorCategory(error: unknown): BackgroundErrorCategory {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError ||
-      error instanceof Prisma.PrismaClientUnknownRequestError ||
-      error instanceof Prisma.PrismaClientInitializationError ||
-      error instanceof Prisma.PrismaClientValidationError
-    ) {
-      return 'database';
-    }
-    if (!(error instanceof Error)) return 'unknown';
-    switch (error.name) {
-      case 'AbortError':
-      case 'TimeoutError':
-        return 'timeout';
-      case 'AccessDenied':
-      case 'InvalidAccessKeyId':
-      case 'SignatureDoesNotMatch':
-        return 'storage_authorization';
-      case 'NoSuchBucket':
-        return 'storage_bucket_missing';
-      case 'SlowDown':
-      case 'ServiceUnavailable':
-        return 'storage_unavailable';
-      default:
-        return 'unknown';
     }
   }
 }

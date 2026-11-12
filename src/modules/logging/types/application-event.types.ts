@@ -59,6 +59,10 @@ export type ApplicationEventInput =
       errorCategory: BackgroundErrorCategory;
     }
   | {
+      event: 'auth.refresh_token_cleanup_failed';
+      errorCategory: BackgroundErrorCategory;
+    }
+  | {
       event: 'avatar.cleanup_retry_scheduling_failed';
       taskId: string;
       attempt: number;
