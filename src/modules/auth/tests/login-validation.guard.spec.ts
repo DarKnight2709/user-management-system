@@ -1,9 +1,8 @@
 import type { ExecutionContext } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import {
-  EMAIL_MAX_LENGTH,
-  LOGIN_PASSWORD_MAX_BYTES,
-} from '../constants/auth.constant.js';
+import { EMAIL_MAX_LENGTH } from '@/common/constants/account-field.constant.js';
+import { emailOfLength } from '../../../../test/support/email-of-length.js';
+import { LOGIN_PASSWORD_MAX_BYTES } from '../constants/auth.constant.js';
 import { LoginValidationGuard } from '../guards/login-validation.guard.js';
 
 const VALID_PASSWORD = 'correct-password-123';
@@ -12,21 +11,6 @@ function contextFor(request: { body?: unknown }): ExecutionContext {
   return {
     switchToHttp: () => ({ getRequest: () => request }),
   } as unknown as ExecutionContext;
-}
-
-/**
- * Structurally valid address of the given total length (64-character local part
- * and labels of at most 63), so only its length decides whether it is accepted.
- */
-function emailOfLength(length: number): string {
-  const localPart = 'a'.repeat(64);
-  const fullLabel = 'b'.repeat(63);
-  const lastLabelLength =
-    length -
-    localPart.length -
-    '@'.length -
-    2 * (fullLabel.length + '.'.length);
-  return `${localPart}@${fullLabel}.${fullLabel}.${'c'.repeat(lastLabelLength)}`;
 }
 
 describe('LoginValidationGuard', () => {

@@ -80,6 +80,28 @@ describe.runIf(runE2eTests)('Auth API (e2e)', () => {
     expect(response.status).toBe(422);
   });
 
+  it('applies the shared profile rules to registration', async () => {
+    // Both fields are invalid, so no account can be created even if a rule regresses.
+    const response = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        username: 'alice',
+        firstName: '   ',
+        lastName: 'Doe',
+        email: 'alice@example.com',
+        birthDate: '2999-01-01',
+        password: 'correct-password-123',
+      })
+      .expect(422);
+
+    const invalidFields = (response.body.errors as { field: string }[]).map(
+      ({ field }) => field,
+    );
+    expect(invalidFields).toEqual(
+      expect.arrayContaining(['firstName', 'birthDate']),
+    );
+  });
+
   it('rejects a refresh with a malformed token', async () => {
     const response = await request(app.getHttpServer())
       .post('/auth/refresh-token')

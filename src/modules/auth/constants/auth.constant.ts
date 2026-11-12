@@ -1,6 +1,3 @@
-/** Longest email address allowed by RFC 5321. */
-export const EMAIL_MAX_LENGTH = 254;
-
 /**
  * Upper bound on a login password. Far above the 72-byte limit applied on
  * registration; it only bounds the work done for a hostile request.

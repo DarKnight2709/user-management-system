@@ -855,6 +855,16 @@ database connectivity and access to the users table, not every migration or busi
 
 Login validates its body before checking credentials: a missing or non-string `email`/`password`, an unexpected field, or an oversized value returns 422 and never reaches password hashing. A wrong password and an unknown email both return the same 401 after the same hashing work, so response time does not reveal which emails have accounts. If the password changes while a login is in progress, the login returns 401 and no session is issued.
 
+Profile fields are validated the same way on registration and profile updates (422 on failure):
+
+| Field | Rule |
+| :--- | :--- |
+| `firstName`, `lastName` | Trimmed, 1–100 characters, no control characters |
+| `username` | Trimmed and lowercased, 3–32 characters; lowercase letters, digits, `.`, `_`, `-`; must start with a letter or digit |
+| `email` | Trimmed and lowercased, valid address, at most 254 characters |
+| `birthDate` | Valid date, not in the future, not more than 150 years ago |
+| New password | At least 15 characters, at most 72 UTF-8 bytes, at least one non-whitespace character |
+
 ---
 
 ## 🧪 Testing & Code Quality
