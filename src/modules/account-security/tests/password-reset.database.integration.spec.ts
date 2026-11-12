@@ -37,7 +37,7 @@ describe.runIf(runDatabaseTests)('Password reset database integration', () => {
   let db: PrismaClient;
   let service: PasswordResetService;
   let tokens: UserSecurityTokenService;
-  let enqueuePasswordReset: ReturnType<typeof vi.fn>;
+  let enqueue: ReturnType<typeof vi.fn>;
   let user: { id: string; email: string };
 
   const tokenRows = () => db.userSecurityToken.findMany();
@@ -103,11 +103,11 @@ describe.runIf(runDatabaseTests)('Password reset database integration', () => {
       FRONTEND_URL: 'https://app.example.com',
     });
     tokens = new UserSecurityTokenService(config);
-    enqueuePasswordReset = vi.fn().mockResolvedValue(true);
+    enqueue = vi.fn().mockResolvedValue(true);
     service = new PasswordResetService(
       database.prisma,
       tokens,
-      { enqueuePasswordReset } as unknown as AccountEmailQueueService,
+      { enqueue } as unknown as AccountEmailQueueService,
       new LoggingService(
         { on: vi.fn(), off: vi.fn(), log: vi.fn() } as unknown as Logger,
         config,
@@ -152,7 +152,7 @@ describe.runIf(runDatabaseTests)('Password reset database integration', () => {
     it('queues the email for the stored token', async () => {
       const { row } = await requestResetToken();
 
-      expect(enqueuePasswordReset).toHaveBeenCalledExactlyOnceWith(row.id);
+      expect(enqueue).toHaveBeenCalledExactlyOnceWith('password-reset', row.id);
     });
 
     it('replaces the earlier token when asked again', async () => {
@@ -179,7 +179,7 @@ describe.runIf(runDatabaseTests)('Password reset database integration', () => {
     it('queues nothing for an address without an account', async () => {
       await service.requestReset('nobody@example.com');
 
-      expect(enqueuePasswordReset).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
     });
 
     it('stores nothing for a deleted account', async () => {

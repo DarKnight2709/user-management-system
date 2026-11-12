@@ -236,6 +236,7 @@ describe.runIf(runDatabaseTests)('Invitations database integration', () => {
     const recipient = await db.user.create({
       data: {
         email: 'member@example.com',
+        emailVerifiedAt: new Date(),
         username: randomUUID(),
         firstName: 'Invitation',
         lastName: 'Recipient',
@@ -293,6 +294,7 @@ describe.runIf(runDatabaseTests)('Invitations database integration', () => {
     const recipient = await db.user.create({
       data: {
         email: 'revoked@example.com',
+        emailVerifiedAt: new Date(),
         username: randomUUID(),
         firstName: 'Revoked',
         lastName: 'Recipient',
