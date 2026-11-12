@@ -851,6 +851,18 @@ database connectivity and access to the users table, not every migration or busi
 - A duplicate username returns 409 `Username is already taken`; a duplicate email returns 409 `An account with these details already exists`. Other unique conflicts return `Resource already exists`. Responses never include database wording.
 - A 409 on registration still shows that the email or username is in use. Closing that gap requires email verification, which is not implemented.
 
+### Deployment, backup and rollback
+
+Pushes to `main` build the backend image, tag it `latest` and with the commit SHA, then deploy it with `scripts/deploy.sh`:
+
+1. Pull images and take a `pg_dump` into `~/backups` on the VPS (the seven newest are kept). If the backup fails or cannot be read, the deploy stops before anything changes.
+2. Run migrations and the organization-permission seed, then start the stack and wait for the backend healthcheck.
+3. If the backend does not become healthy, the previous image (recorded in `~/app/.deployed-tag`) is restarted and the job still fails. The first deploy has nothing to roll back to.
+
+Rollback only changes the image. Migrations are not undone, so each migration must keep working with the previous release. A backup is restored by hand, and the backups share the VPS disk with the database, so they do not protect against losing the disk.
+
+Production Redis persists with AOF and refuses writes at 96 MB instead of being killed at its 128 MB container limit. A reverse proxy and TLS are not configured here. Redis authentication, Grafana credentials and a dedicated MinIO application user are still open work. This flow was not exercised against a real server.
+
 ### Authentication Flow in Swagger UI:
 
 1. Call `POST /auth/login` with your credentials (`email` and `password`).

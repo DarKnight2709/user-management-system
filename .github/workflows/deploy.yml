@@ -195,7 +195,10 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/darknight2709/ums-backend:latest
+          # The commit tag is what the VPS deploys and rolls back to.
+          tags: |
+            ghcr.io/darknight2709/ums-backend:latest
+            ghcr.io/darknight2709/ums-backend:${{ github.sha }}
           cache-from: type=gha
 
   deploy-to-vps:
@@ -218,7 +221,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: 'docker-compose.prod.yml,.env,docker/minio/avatars-policy.json,alloy/config.alloy,loki/loki-config.yaml,grafana/provisioning'
+          source: 'docker-compose.prod.yml,.env,scripts/deploy.sh,docker/minio/avatars-policy.json,alloy/config.alloy,loki/loki-config.yaml,grafana/provisioning'
           target: '~/app'
 
       # 3. Thực thi kéo Image mới, Migrate DB, Up container và Dọn rác
@@ -234,31 +237,5 @@ jobs:
 
             cd ~/app
 
-            # Pull backend and centralized logging images
-            docker compose -f docker-compose.prod.yml pull backend loki alloy grafana
-
-            # Chạy Prisma migration bằng temporary container
-            docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
-
-            # Seed catalog quyền sau khi migration thành công.
-            docker compose -f docker-compose.prod.yml run --rm --no-deps backend \
-            npm run prisma:seed:organization-permissions
-
-            # Khởi chạy/Cập nhật các service
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
-
-            # Fail the deploy if the backend does not become healthy (image HEALTHCHECK -> /health/ready).
-            # Note: this reports the failure; it does not roll back to the previous image.
-            for i in $(seq 1 30); do
-              status=$(docker inspect --format '{{.State.Health.Status}}' ums-backend 2>/dev/null || echo missing)
-              echo "backend health: $status ($i/30)"
-              [ "$status" = "healthy" ] && break
-              sleep 5
-            done
-            if [ "$status" != "healthy" ]; then
-              docker logs --tail 50 ums-backend
-              exit 1
-            fi
-
-            # Dọn dẹp rác image cũ để giải phóng dung lượng ổ cứng VPS
-            docker image prune -f
+            # Backup, migrate, start, health check and rollback live in the script.
+            bash scripts/deploy.sh "${{ github.sha }}"

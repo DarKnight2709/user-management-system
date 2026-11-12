@@ -10,8 +10,6 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { GlobalModule } from './modules/global/global.module.js';
 import { PrismaClientExceptionFilter } from './common/filters/prisma-exception.filter.js';
 import { AuthModule } from './modules/auth/auth.module.js';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard.js';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
@@ -38,10 +36,6 @@ import { AuditModule } from './modules/audit/audit.module.js';
           password: config.get<string>('REDIS_PASSWORD'),
         },
       }),
-    }),
-    ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'uploads'),
-      serveRoot: '/static',
     }),
     // ThrottlerModule registers the policies and storage
     // The policies will be implemented in ascending ttl order
