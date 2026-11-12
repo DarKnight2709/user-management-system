@@ -1,12 +1,15 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
-import type { RequestUser } from '@/common/decorators/current-user.decorator.js';
 import { currentRequestId } from '@/common/utils/request-id.util.js';
 import { PrismaService } from '@/core/database/prisma.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
-import type { TokenPair } from '../interfaces/auth.interface.js';
+import type {
+  AuthenticatedUser,
+  TokenPair,
+} from '../interfaces/auth.interface.js';
 import { authRequestContext } from '../utils/auth-request-context.util.js';
+import { matchesCredentialRef } from '../utils/credential-ref.util.js';
 import { TokenService } from './token.service.js';
 
 /** Refresh-session lifecycle: login, rotation with reuse detection, logout. */
@@ -19,7 +22,7 @@ export class AuthSessionService {
   ) {}
 
   async login(
-    user: RequestUser,
+    user: AuthenticatedUser,
     ipAddress?: string,
     userAgent?: string,
   ): Promise<TokenPair> {
@@ -31,7 +34,9 @@ export class AuthSessionService {
         const activeUser = await manager.user.findUnique({
           where: { id: user.id, deletedAt: null },
         });
-        if (!activeUser) throw new UnauthorizedException('Invalid credentials');
+        if (!activeUser || this.passwordChangedSince(user, activeUser)) {
+          throw new UnauthorizedException('Invalid credentials');
+        }
         return this.tokens.generateRefreshToken(
           activeUser,
           ipAddress,
@@ -50,6 +55,17 @@ export class AuthSessionService {
       requestContext: { requestId, sourceIp: ipAddress, userAgent },
     });
     return { accessToken, refreshToken };
+  }
+
+  /** True when the password changed after these credentials were verified. */
+  private passwordChangedSince(
+    verified: AuthenticatedUser,
+    current: { hashedPassword: string },
+  ): boolean {
+    return !matchesCredentialRef(
+      current.hashedPassword,
+      verified.credentialRef,
+    );
   }
 
   async refreshToken(

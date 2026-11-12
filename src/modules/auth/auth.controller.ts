@@ -20,6 +20,8 @@ import {
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { LoginDto, RefreshTokenDto, RegisterDto } from './dto/auth.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { LoginValidationGuard } from './guards/login-validation.guard.js';
+import type { AuthenticatedUser } from './interfaces/auth.interface.js';
 import { Public } from '@/common/decorators/public.decorator.js';
 import { IpRateLimit } from '@/common/decorators/ip-rate-limit.decorator.js';
 import { UserRateLimit } from '@/common/decorators/user-rate-limit.decorator.js';
@@ -33,13 +35,13 @@ export class AuthController {
     private readonly passwords: PasswordService,
   ) {}
 
-  @UseGuards(AuthGuard('local'))
+  @UseGuards(LoginValidationGuard, AuthGuard('local'))
   @SetMetadata('loginAccountRateLimit', true)
   @Public()
   @Post('login')
   @ApiOperation({ summary: 'Log in with email and password' })
   @ApiBody({ type: LoginDto })
-  async login(@CurrentUser() user: RequestUser, @Req() request: Request) {
+  async login(@CurrentUser() user: AuthenticatedUser, @Req() request: Request) {
     const ipAddress = request.ip;
     const userAgent = request.get('user-agent');
     return this.sessions.login(user, ipAddress, userAgent);
