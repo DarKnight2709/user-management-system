@@ -124,7 +124,7 @@ describe.runIf(runDatabaseTests)(
       );
       users = new UsersService(
         database.prisma,
-        {} as unknown as S3Service,
+        { getPublicUrl: () => null } as unknown as S3Service,
         new PermissionsService(database.prisma),
         logging,
         verification,
