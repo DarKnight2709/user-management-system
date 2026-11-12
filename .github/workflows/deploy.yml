@@ -89,6 +89,11 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
 
+      # E2E suites boot the full app against this throwaway database; some
+      # requests (e.g. login) query the users table even when they are rejected.
+      - name: Apply database migrations
+        run: npx prisma migrate deploy --config prisma7.config.ts
+
       - name: Run E2E tests
         run: npm run test:e2e
   secret-scan:
