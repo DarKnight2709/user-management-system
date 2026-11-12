@@ -851,6 +851,12 @@ database connectivity and access to the users table, not every migration or busi
 - A duplicate username returns 409 `Username is already taken`; a duplicate email returns 409 `An account with these details already exists`. Other unique conflicts return `Resource already exists`. Responses never include database wording.
 - A 409 on registration still shows that the email or username is in use. Closing that gap requires email verification, which is not implemented.
 
+### Data retention
+
+- **Refresh tokens:** a background job deletes refresh tokens that expired more than 24 hours ago (hourly, in batches). Tokens that were revoked but have not expired are kept, because replaying one is how token reuse is detected.
+- **Deleted accounts:** deleting an account is a soft delete, so its email and username stay reserved: registering with them returns 409 and organizations cannot invite them. Releasing or anonymizing them is not implemented until account restoration is designed.
+- **Audit events and logs:** no retention is configured for the `audit_events` table (it only grows); Loki keeps logs for seven days by configuration, which has not been verified to delete anything.
+
 ### Deployment, backup and rollback
 
 For the full picture of the CI/CD pipeline, the VPS services, secrets and operating procedures, see [docs/infrastructure-and-deployment.md](docs/infrastructure-and-deployment.md).

@@ -138,6 +138,16 @@ logging failures.
   transaction retries. The original error must still propagate.
 - Single-family logout uses the separate `auth.logout_session_failed` event.
 
+## auth.refresh_token_cleanup_failed
+
+- Category: application; level: error; schemaVersion: 1.
+- Message: `Refresh token cleanup failed`.
+- Input: event and errorCategory (the same fixed categories as the avatar
+  cleanup events). There is no request context: the job runs on a timer.
+- Trigger: a failure while deleting expired refresh tokens
+  (`RefreshTokenCleanupService`). The run stops; the next hourly run continues.
+  No error message, token, user ID or database diagnostic is included.
+
 ## auth.logout_session_failed
 
 - Category: application; level: error; schemaVersion: 1.

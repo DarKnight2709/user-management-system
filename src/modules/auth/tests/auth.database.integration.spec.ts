@@ -21,8 +21,13 @@ import {
 } from '../../../../test/support/isolated-database.js';
 import { AuthSessionService } from '../services/auth-session.service.js';
 import { PasswordService } from '../services/password.service.js';
+import { RefreshTokenCleanupService } from '../services/refresh-token-cleanup.service.js';
 import { TokenService } from '../services/token.service.js';
 import type { ChangePasswordDto } from '../dto/change-password.dto.js';
+import {
+  REFRESH_TOKEN_CLEANUP_BATCH_SIZE,
+  REFRESH_TOKEN_RETENTION_AFTER_EXPIRY_MS,
+} from '../constants/auth.constant.js';
 import { toCredentialRef } from '../utils/credential-ref.util.js';
 
 const runDatabaseTests = process.env.RUN_DATABASE_TESTS === 'true';
@@ -35,6 +40,7 @@ describe.runIf(runDatabaseTests)('Auth database integration', () => {
   let db: PrismaClient;
   let sessions: AuthSessionService;
   let passwords: PasswordService;
+  let cleanup: RefreshTokenCleanupService;
   let tokens: TokenService;
   let securityLog: ReturnType<typeof vi.fn>;
   let user: { id: string; username: string; email: string };
@@ -110,6 +116,7 @@ describe.runIf(runDatabaseTests)('Auth database integration', () => {
     );
     sessions = new AuthSessionService(database.prisma, tokens, logging);
     passwords = new PasswordService(database.prisma, logging);
+    cleanup = new RefreshTokenCleanupService(database.prisma, logging);
   });
 
   afterAll(async () => {
@@ -454,6 +461,120 @@ describe.runIf(runDatabaseTests)('Auth database integration', () => {
       });
 
       await expect(change()).rejects.toMatchObject({ status: 401 });
+    });
+  });
+
+  describe('expired refresh token cleanup', () => {
+    const MS_PER_HOUR = 60 * 60 * 1000;
+    const expiredFor = (ms: number) => new Date(Date.now() - ms);
+
+    const insertToken = (expiresAt: Date, revokedAt: Date | null = null) =>
+      db.refreshToken.create({
+        data: {
+          userId: user.id,
+          familyId: randomUUID(),
+          refreshTokenHash: randomUUID(),
+          expiresAt,
+          revokedAt,
+        },
+      });
+
+    const remainingIds = async () =>
+      new Set((await db.refreshToken.findMany()).map(({ id }) => id));
+
+    it('deletes tokens that expired before the retention period', async () => {
+      const old = await insertToken(
+        expiredFor(REFRESH_TOKEN_RETENTION_AFTER_EXPIRY_MS + MS_PER_HOUR),
+      );
+
+      await cleanup.deleteExpired();
+
+      expect(await remainingIds()).not.toContain(old.id);
+    });
+
+    it('deletes revoked tokens that expired before the retention period', async () => {
+      const old = await insertToken(
+        expiredFor(REFRESH_TOKEN_RETENTION_AFTER_EXPIRY_MS + MS_PER_HOUR),
+        new Date(),
+      );
+
+      await cleanup.deleteExpired();
+
+      expect(await remainingIds()).not.toContain(old.id);
+    });
+
+    it('keeps tokens that expired within the retention period', async () => {
+      const recent = await insertToken(expiredFor(MS_PER_HOUR));
+
+      await cleanup.deleteExpired();
+
+      expect(await remainingIds()).toContain(recent.id);
+    });
+
+    it('keeps revoked tokens that have not expired', async () => {
+      const revoked = await insertToken(
+        new Date(Date.now() + MS_PER_HOUR),
+        new Date(),
+      );
+
+      await cleanup.deleteExpired();
+
+      expect(await remainingIds()).toContain(revoked.id);
+    });
+
+    it('keeps active tokens', async () => {
+      const { refreshToken } = await login();
+
+      await cleanup.deleteExpired();
+
+      expect(await remainingIds()).toContain(
+        tokens.verifyRefreshToken(refreshToken).jti,
+      );
+    });
+
+    it('deletes a backlog larger than one batch in a single run', async () => {
+      const expiresAt = expiredFor(
+        REFRESH_TOKEN_RETENTION_AFTER_EXPIRY_MS + MS_PER_HOUR,
+      );
+      await db.refreshToken.createMany({
+        data: Array.from(
+          { length: REFRESH_TOKEN_CLEANUP_BATCH_SIZE + 5 },
+          () => ({
+            userId: user.id,
+            familyId: randomUUID(),
+            refreshTokenHash: randomUUID(),
+            expiresAt,
+          }),
+        ),
+      });
+
+      await cleanup.deleteExpired();
+
+      await expect(db.refreshToken.count()).resolves.toBe(0);
+    });
+
+    it('still detects reuse of a rotated token after a cleanup', async () => {
+      const first = await login();
+      await sessions.refreshToken(first.refreshToken);
+
+      await cleanup.deleteExpired();
+
+      await expect(
+        sessions.refreshToken(first.refreshToken),
+      ).rejects.toMatchObject({
+        status: 401,
+        message: 'Refresh token reuse detected',
+      });
+    });
+
+    it('revokes the whole family when a rotated token is replayed after a cleanup', async () => {
+      const first = await login();
+      await sessions.refreshToken(first.refreshToken);
+      await cleanup.deleteExpired();
+
+      await sessions.refreshToken(first.refreshToken).catch(() => undefined);
+
+      await expect(activeTokens()).resolves.toBe(0);
     });
   });
 

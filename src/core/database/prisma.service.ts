@@ -64,7 +64,8 @@ export class PrismaService
     const pool = new Pool({ connectionString: databaseUrl });
 
     // 2. Wrap it in the Prisma Adapter
-    const adapter = new PrismaPg(pool);
+    // Without this, $disconnect() leaves an externally created pool open.
+    const adapter = new PrismaPg(pool, { disposeExternalPool: true });
 
     // 3. Pass the adapter to the parent PrismaClient
     super({

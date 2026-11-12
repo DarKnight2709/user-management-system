@@ -128,6 +128,15 @@ export const APPLICATION_EVENT_POLICIES = {
     persistToPostgres: false,
     onLoggingFailure: 'preserve-operation-result',
   },
+  'auth.refresh_token_cleanup_failed': {
+    schemaVersion: 1,
+    category: 'application',
+    level: 'error',
+    message: 'Refresh token cleanup failed',
+    output: 'winston-console',
+    persistToPostgres: false,
+    onLoggingFailure: 'preserve-operation-result',
+  },
   'avatar.cleanup_retry_scheduling_failed': {
     schemaVersion: 1,
     category: 'application',
