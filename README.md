@@ -27,7 +27,8 @@ Compose setup is not a production deployment configuration.
 - **Sessions:** logout and password changes revoke refresh sessions. Existing access
   JWTs may remain usable until expiry (15 minutes by default), except deleted users
   are rejected by the JWT strategy. Immediate access-token revocation, browser cookie
-  transport, and session-retention work are deferred.
+  transport, and per-account session limits are deferred. Expired refresh tokens are
+  deleted by an hourly background job.
 - **Deployment:** CORS is deferred until browser client origins are known. Shared
   throttling storage, centralized logging, and routing/drain timing require deployment
   work. Readiness checks PostgreSQL and shutdown state, not MinIO.
@@ -46,10 +47,11 @@ Compose setup is not a production deployment configuration.
   - Passport Local strategy for credential verification and secure bcrypt password hashing.
   - Short-lived access JWTs and database-backed refresh-token rotation with family revocation.
   - Global JWT authentication, request throttling, password change, and logout/logout-all.
+  - Password reset and email verification through emailed one-time tokens (BullMQ queue `account-email`).
   - Type-safe `@CurrentUser()` custom decorator for extracting authenticated identity.
 - **User Management (CRUD)**:
   - Public registration, permission-protected account listing, self-service profile updates, and soft deletion.
-  - Account deletion allows self-service or platform USER delete permission; owners of undeleted organizations are protected. Last-admin protection remains pending.
+  - Account deletion allows self-service or platform USER delete permission; owners of undeleted organizations and the SUPER_ADMIN account are protected.
   - Robust request validation powered by `class-validator` and `ParseUUIDPipe`.
 - **S3-Compatible Avatar Storage**:
   - Single-part image uploads via Multer interceptor.
@@ -966,8 +968,10 @@ Each module is covered by up to three test layers:
 | Database integration (isolated temporary schema) | `*.database.integration.spec.ts` | `RUN_DATABASE_TESTS=true` |
 | E2E (HTTP, via `AppModule`) | `test/*.e2e-spec.ts` | `RUN_<MODULE>_E2E_TESTS=true npm run test:e2e` |
 
-Users, audit and auth have all three layers (their e2e suites cover unauthenticated access). Logging
-has unit and database integration tests only because it exposes no HTTP routes.
+Users, audit, auth, account-security and the organization modules have all three layers (their e2e suites
+cover unauthenticated or non-creating requests). Logging has unit and database integration tests only
+because it exposes no HTTP routes. Each e2e suite has its own switch, for example
+`RUN_ACCOUNT_SECURITY_E2E_TESTS=true`.
 
 Type-check these tests with the project aliases:
 
@@ -993,11 +997,14 @@ user-management-system/
 │   ├── common/              # Shared guards, interceptors, filters, decorators
 │   ├── core/                # Core providers: Prisma database, S3 storage, env validation
 │   └── modules/
-│       ├── auth/            # AuthService, services/ (sessions, passwords, tokens), strategies, tests/
-│       ├── users/           # UsersService, UserDeletionService, UserAvatarService, tests/
+│       ├── account-security/ # Password reset, email verification, account-email queue and worker, tests/
 │       ├── audit/           # AuditLogsService, access/reader/view-recorder services, tests/
+│       ├── auth/            # AuthService, services/ (sessions, passwords, tokens, cleanup), guards/, strategies, tests/
+│       ├── global/          # GlobalModule (shared PermissionsService)
+│       ├── health/          # /health/live and /health/ready
 │       ├── logging/         # LoggingService facade, LogEmitter, AuditRecorder, policies, schemas, tests/
-│       └── ...              # organizations, audit, health, global
+│       ├── organizations/   # Organizations, admin/, invitations/, members/, roles/, ownership/, tests/
+│       └── users/           # UsersService, UserDeletionService, UserAvatarService, tests/
 ├── AGENTS.md                # Operating guidelines for AI coding assistants
 └── GIT_GUIDELINES.md        # Branching, conventional commits & PR standards
 ```
