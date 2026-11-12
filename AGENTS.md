@@ -131,6 +131,8 @@ independent. No routing-propagation grace period is implemented; deployment drai
 timing and real signal behavior require separate verification. Storage readiness remains pending.
 Do not treat the root greeting or liveness as dependency verification.
 
+Deployment conventions: the `deploy-to-vps` job copies `scripts/deploy.sh` and runs it on the VPS with the commit SHA as the image tag. The script pulls images, takes a verified `pg_dump` into `~/backups` (seven newest kept; a failed backup stops the deploy before anything changes), runs migrations and the permission seed, starts the stack and waits for the backend healthcheck. If the backend does not become healthy it restarts the previous image recorded in `~/app/.deployed-tag` (none exists on the first deploy) and still fails the job. Migrations are never rolled back, so every migration must stay compatible with the previous release (add before you remove); restoring a backup is a manual decision. `docker-compose.prod.yml` takes the image from `BACKEND_IMAGE_TAG` (default `latest`); keep images pushed with both `latest` and the SHA tag. Production Redis uses AOF, `maxmemory 96mb` (below the 128M container limit) and `noeviction`; postgres and redis have healthchecks and the backend waits for them. Redis has no password, Grafana still uses default admin credentials and the application still uses MinIO root credentials; these remain open (see `plans/backend-review-fixes/plan.md`, phase 5), as do the reverse proxy and TLS. None of this was verified against a real VPS or Docker daemon.
+
 ## 4. Git & Commit Guidelines
 
 - Strictly adhere to [GIT_GUIDELINES.md](file:///d:/VscodeProjects/user-management-system/GIT_GUIDELINES.md).

@@ -18,6 +18,14 @@ services:
       - '127.0.0.1:5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     deploy:
       resources:
         limits:
@@ -31,10 +39,27 @@ services:
     image: redis:7-alpine
     container_name: ums-redis
     restart: always
+    # Queue jobs live here: persist them with AOF, and reject writes at the
+    # memory cap (below the container limit) instead of being OOM-killed.
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--maxmemory',
+        '96mb',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
     ports:
       - '127.0.0.1:6379:6379'
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
     deploy:
       resources:
         limits:
@@ -99,7 +124,7 @@ services:
 
   backend:
     logging: *default-logging
-    image: ghcr.io/darknight2709/ums-backend:latest
+    image: ghcr.io/darknight2709/ums-backend:${BACKEND_IMAGE_TAG:-latest}
     container_name: ums-backend
     restart: always
     env_file:
@@ -108,9 +133,9 @@ services:
       - '127.0.0.1:3000:3000'
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
     deploy:
