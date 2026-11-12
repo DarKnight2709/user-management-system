@@ -31,6 +31,44 @@ function fixture() {
   };
 }
 
+describe('PrismaClientExceptionFilter unique conflicts', () => {
+  const uniqueViolation = (meta?: Record<string, unknown>) =>
+    new Prisma.PrismaClientKnownRequestError('private-diagnostic', {
+      code: 'P2002',
+      meta,
+      clientVersion: 'fixture',
+    });
+
+  it('never exposes driver or column wording', () => {
+    const { filter, host, reply } = fixture();
+    const error = uniqueViolation({
+      driverAdapterError: {
+        cause: {
+          kind: 'UniqueConstraintViolation',
+          constraint: { index: 'private_index_name' },
+        },
+      },
+      table: 'private_table',
+    });
+
+    filter.catch(error, host);
+
+    expect(JSON.stringify(reply.mock.calls)).not.toContain('private_');
+  });
+
+  it('falls back to a generic message when the metadata is missing', () => {
+    const { filter, host, reply, response } = fixture();
+
+    filter.catch(uniqueViolation(), host);
+
+    expect(reply).toHaveBeenCalledWith(
+      response,
+      expect.objectContaining({ message: 'Resource already exists' }),
+      409,
+    );
+  });
+});
+
 describe('PrismaClientExceptionFilter safe logging', () => {
   it('logs only a fixed event and Prisma code for an unhandled error', () => {
     const { filter, host, reply, response, application } = fixture();
@@ -65,10 +103,18 @@ describe('PrismaClientExceptionFilter safe logging', () => {
   it.each([
     {
       code: 'P2002',
-      meta: { target: ['email'] },
+      meta: {
+        driverAdapterError: {
+          cause: {
+            kind: 'UniqueConstraintViolation',
+            constraint: { index: 'users_username_key' },
+          },
+        },
+        table: 'users',
+      },
       status: 409,
       error: 'Conflict',
-      message: 'Unique constraint failed on: email',
+      message: 'Username is already taken',
     },
     {
       code: 'P2025',

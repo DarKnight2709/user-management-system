@@ -8,6 +8,10 @@ import {
 import { HttpAdapterHost } from '@nestjs/core';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { currentRequestId } from '@/common/utils/request-id.util.js';
+import {
+  TRANSACTION_CONFLICT_RETRY_AFTER_SECONDS,
+  TransactionConflictException,
+} from '@/core/database/transaction-conflict.exception.js';
 
 // This filter will differentiate between HttpException and unexpected Errors
 @Catch() // catch everything: HttpException and raw unexpected Errors
@@ -40,6 +44,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = exception.getStatus();
       const res = exception.getResponse();
       const cause = exception.cause;
+
+      if (exception instanceof TransactionConflictException) {
+        httpAdapter.setHeader(
+          response,
+          'Retry-After',
+          String(TRANSACTION_CONFLICT_RETRY_AFTER_SECONDS),
+        );
+      }
 
       if (cause) {
         this.logging.application({
