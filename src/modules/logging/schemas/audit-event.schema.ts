@@ -176,6 +176,12 @@ export const auditEventSchema = Joi.alternatives<AuditEventInput>()
       }).required(),
     }),
     anonymousUserAuditEventSchema.keys({
+      action: Joi.string().valid('user.email.verified').required(),
+      payload: Joi.object({
+        method: Joi.string().valid('EMAIL_LINK').required(),
+      }).required(),
+    }),
+    anonymousUserAuditEventSchema.keys({
       action: Joi.string().valid('user.password.reset').required(),
       payload: Joi.object({
         revokedRefreshTokenCount: Joi.number()

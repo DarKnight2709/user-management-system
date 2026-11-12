@@ -124,6 +124,10 @@ export type AuditEventInput =
       action: 'user.password.reset';
       payload: { revokedRefreshTokenCount: number };
     })
+  | (AnonymousUserAuditEvent & {
+      action: 'user.email.verified';
+      payload: { method: 'EMAIL_LINK' };
+    })
   | (UserAuditEvent & {
       action: 'user.profile.updated';
       payload: {

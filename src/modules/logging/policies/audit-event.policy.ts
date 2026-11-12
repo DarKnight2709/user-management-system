@@ -50,6 +50,7 @@ export const AUDIT_POLICIES = {
   'user.deleted': businessChange,
   'user.password.changed': businessChange,
   'user.password.reset': businessChange,
+  'user.email.verified': businessChange,
   'user.avatar.updated': businessChange,
   'organization.member_role.assigned': businessChange,
   'organization.member_role.revoked': businessChange,

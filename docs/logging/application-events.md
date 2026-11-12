@@ -152,7 +152,7 @@ logging failures.
 
 - `account_email.queue_unavailable` (queue `account-email`): the queue reported an
   error; without a listener it would be thrown as an unhandled event.
-- `account_email.enqueue_unavailable` (queue, kind `password-reset`): the job
+- `account_email.enqueue_unavailable` (queue, kind `password-reset` or `email-verification`): the job
   was not accepted within three seconds. The request still succeeds, because the
   caller must not learn whether an address has an account.
 - `account_email.delivery_failed` (kind, stage `database-read`, `link-configuration`

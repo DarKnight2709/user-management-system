@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PermissionsService } from '@/common/services/permissions.service.js';
 import { S3Service } from '@/core/storage/s3.service.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
+import type { EmailVerificationService } from '@/modules/account-security/services/email-verification.service.js';
 import { createPrismaStub } from '../../../../test/support/prisma-stub.js';
 import { UsersService } from '../users.service.js';
 import type { CreateUserDto, UpdateUserDto } from '../dto/user.dto.js';
@@ -49,13 +50,26 @@ function setup() {
     audit: vi.fn().mockResolvedValue(auditEvent),
     publishCommittedAudit: vi.fn(),
   };
+  const emailVerification = {
+    issueFor: vi.fn().mockResolvedValue({ id: 'verification-token-id' }),
+    enqueue: vi.fn().mockResolvedValue(true),
+  };
   const service = new UsersService(
     prisma,
     s3 as unknown as S3Service,
     permissions as unknown as PermissionsService,
     logging as unknown as LoggingService,
+    emailVerification as unknown as EmailVerificationService,
   );
-  return { service, manager, prisma, permissions, logging, auditEvent };
+  return {
+    service,
+    manager,
+    prisma,
+    permissions,
+    logging,
+    auditEvent,
+    emailVerification,
+  };
 }
 
 describe('UsersService.findAllForActor', () => {
@@ -291,6 +305,132 @@ describe('UsersService.update', () => {
     expect(manager.user.update).not.toHaveBeenCalled();
     expect(logging.audit).not.toHaveBeenCalled();
     expect(logging.publishCommittedAudit).not.toHaveBeenCalled();
+  });
+
+  describe('when the email is not part of the change', () => {
+    const changeName = (service: UsersService) =>
+      service.update(targetId, {
+        ...sameProfile,
+        firstName: 'Alicia',
+      } as unknown as UpdateUserDto);
+
+    it('keeps the account verified', async () => {
+      const { service, manager } = setup();
+
+      await changeName(service);
+
+      expect(manager.user.update.mock.calls[0][0].data).not.toHaveProperty(
+        'emailVerifiedAt',
+      );
+    });
+
+    it('issues no verification token', async () => {
+      const { service, emailVerification } = setup();
+
+      await changeName(service);
+
+      expect(emailVerification.issueFor).not.toHaveBeenCalled();
+    });
+
+    it('sends no verification email', async () => {
+      const { service, emailVerification } = setup();
+
+      await changeName(service);
+
+      expect(emailVerification.enqueue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('when the email changes', () => {
+    const changeEmail = (service: UsersService) =>
+      service.update(targetId, {
+        ...sameProfile,
+        email: ' New@Example.COM ',
+      } as unknown as UpdateUserDto);
+
+    it('stores the normalized address', async () => {
+      const { service, manager } = setup();
+
+      await changeEmail(service);
+
+      expect(manager.user.update.mock.calls[0][0].data).toMatchObject({
+        email: 'new@example.com',
+      });
+    });
+
+    it('makes the account unverified again in the same write', async () => {
+      const { service, manager } = setup();
+
+      await changeEmail(service);
+
+      expect(manager.user.update.mock.calls[0][0].data).toMatchObject({
+        emailVerifiedAt: null,
+      });
+    });
+
+    it('issues a verification token for the account inside the transaction', async () => {
+      const { service, manager, emailVerification } = setup();
+
+      await changeEmail(service);
+
+      expect(emailVerification.issueFor).toHaveBeenCalledExactlyOnceWith(
+        manager,
+        targetId,
+      );
+    });
+
+    it('issues the token after the address is written', async () => {
+      const { service, manager, emailVerification } = setup();
+
+      await changeEmail(service);
+
+      expect(manager.user.update.mock.invocationCallOrder[0]).toBeLessThan(
+        emailVerification.issueFor.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('queues the verification email for that token', async () => {
+      const { service, emailVerification } = setup();
+
+      await changeEmail(service);
+
+      expect(emailVerification.enqueue).toHaveBeenCalledExactlyOnceWith(
+        'verification-token-id',
+      );
+    });
+
+    it('queues the email only after the transaction has committed', async () => {
+      const { service, logging, emailVerification } = setup();
+
+      await changeEmail(service);
+
+      expect(
+        logging.publishCommittedAudit.mock.invocationCallOrder[0],
+      ).toBeLessThan(emailVerification.enqueue.mock.invocationCallOrder[0]);
+    });
+
+    it('queues no email when the update fails', async () => {
+      const { service, manager, emailVerification } = setup();
+      manager.user.update.mockRejectedValue(new Error('database down'));
+
+      await changeEmail(service).catch(() => undefined);
+
+      expect(emailVerification.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('still audits the change as a profile update', async () => {
+      const { service, logging } = setup();
+
+      await changeEmail(service);
+
+      expect(logging.audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'user.profile.updated',
+          payload: { changedFields: ['email'] },
+        }),
+        expect.anything(),
+      );
+    });
   });
 
   it('writes and audits only the changed fields', async () => {

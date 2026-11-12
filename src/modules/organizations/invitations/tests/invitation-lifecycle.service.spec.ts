@@ -39,9 +39,11 @@ function setup() {
   };
   const manager = {
     user: {
-      findUnique: vi
-        .fn()
-        .mockResolvedValue({ id: recipientId, email: 'member@example.com' }),
+      findUnique: vi.fn().mockResolvedValue({
+        id: recipientId,
+        email: 'member@example.com',
+        emailVerifiedAt: new Date(),
+      }),
       findFirst: vi.fn().mockResolvedValue(null),
     },
     organization: {
@@ -417,11 +419,51 @@ describe('InvitationAcceptanceService', () => {
     ).rejects.toMatchObject({ status: 401 });
   });
 
+  describe('an account whose email is not verified', () => {
+    const unverified = (manager: ReturnType<typeof setup>['manager']) =>
+      manager.user.findUnique.mockResolvedValue({
+        id: recipientId,
+        email: 'member@example.com',
+        emailVerifiedAt: null,
+      });
+
+    it('cannot accept, even with the right address and a valid invitation', async () => {
+      const { acceptance, manager, links } = setup();
+      unverified(manager);
+
+      await expect(
+        acceptance.accept(recipientId, token(links)),
+      ).rejects.toMatchObject({
+        status: 403,
+        message: 'Verify your email address before accepting an invitation',
+      });
+    });
+
+    it('does not become a member', async () => {
+      const { acceptance, manager, links } = setup();
+      unverified(manager);
+
+      await acceptance.accept(recipientId, token(links)).catch(() => undefined);
+
+      expect(manager.organizationMember.create).not.toHaveBeenCalled();
+    });
+
+    it('leaves the invitation pending', async () => {
+      const { acceptance, manager, links } = setup();
+      unverified(manager);
+
+      await acceptance.accept(recipientId, token(links)).catch(() => undefined);
+
+      expect(manager.organizationInvitation.update).not.toHaveBeenCalled();
+    });
+  });
+
   it('requires the signed-in email to match the invited email', async () => {
     const { acceptance, manager, links } = setup();
     manager.user.findUnique.mockResolvedValue({
       id: recipientId,
       email: 'someone-else@example.com',
+      emailVerifiedAt: new Date(),
     });
 
     await expect(
@@ -435,6 +477,7 @@ describe('InvitationAcceptanceService', () => {
     manager.user.findUnique.mockResolvedValue({
       id: recipientId,
       email: '  Member@Example.com ',
+      emailVerifiedAt: new Date(),
     });
 
     await expect(

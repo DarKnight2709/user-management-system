@@ -45,6 +45,7 @@ function setup(overrides: Record<string, unknown> = {}) {
       findUnique: vi.fn().mockResolvedValue({
         id: actorId,
         email: 'member@example.com',
+        emailVerifiedAt: new Date(),
       }),
       findFirst: vi.fn().mockResolvedValue(null),
     },

@@ -4,6 +4,7 @@ import { LoggingService } from '@/modules/logging/logging.service.js';
 import { UsersService } from '@/modules/users/users.service.js';
 import { AuthService } from '../auth.service.js';
 import type { RegisterDto } from '../dto/auth.dto.js';
+import type { EmailVerificationService } from '@/modules/account-security/services/email-verification.service.js';
 import { toCredentialRef } from '../utils/credential-ref.util.js';
 
 vi.mock('@/modules/users/users.service.js', () => ({ UsersService: class {} }));
@@ -27,11 +28,13 @@ function setup() {
     create: vi.fn().mockResolvedValue({ id: storedUser.id }),
   };
   const logging = { security: vi.fn() };
+  const emailVerification = { sendTo: vi.fn().mockResolvedValue(undefined) };
   const service = new AuthService(
     users as unknown as UsersService,
     logging as unknown as LoggingService,
+    emailVerification as unknown as EmailVerificationService,
   );
-  return { service, users, logging };
+  return { service, users, logging, emailVerification };
 }
 
 describe('AuthService.validateUser', () => {
@@ -202,6 +205,35 @@ describe('AuthService.register', () => {
     expect(JSON.stringify(logging.security.mock.calls)).not.toContain(
       dto.password,
     );
+  });
+
+  it('sends a verification link to the new account', async () => {
+    const { service, emailVerification } = setup();
+
+    await service.register(dto);
+
+    expect(emailVerification.sendTo).toHaveBeenCalledExactlyOnceWith(
+      storedUser.id,
+    );
+  });
+
+  it('sends the link only after the account was created', async () => {
+    const { service, users, emailVerification } = setup();
+
+    await service.register(dto);
+
+    expect(users.create.mock.invocationCallOrder[0]).toBeLessThan(
+      emailVerification.sendTo.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('sends no link when creation fails', async () => {
+    const { service, users, emailVerification } = setup();
+    users.create.mockRejectedValue(new Error('duplicate'));
+
+    await service.register(dto).catch(() => undefined);
+
+    expect(emailVerification.sendTo).not.toHaveBeenCalled();
   });
 
   it('logs nothing when creation fails', async () => {

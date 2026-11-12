@@ -111,6 +111,63 @@ describe('EmailService', () => {
     });
   });
 
+  describe('email verification email', () => {
+    const message = {
+      to: 'user@example.com',
+      verifyLink: 'https://frontend.invalid/verify-email#token=abc',
+      expiresAt: new Date('2026-01-02T00:00:00.000Z'),
+    };
+
+    it('is plain text with the link', async () => {
+      sendMail.mockResolvedValue({ accepted: ['user@example.com'] });
+
+      await service.sendEmailVerificationEmail(message);
+
+      expect(sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from: 'sender@example.com',
+          to: 'user@example.com',
+          subject: 'Verify your email address',
+          disableFileAccess: true,
+          disableUrlAccess: true,
+          text: expect.stringContaining(message.verifyLink),
+        }),
+      );
+    });
+
+    it('states when the link expires', async () => {
+      sendMail.mockResolvedValue({ accepted: ['user@example.com'] });
+
+      await service.sendEmailVerificationEmail(message);
+
+      expect(sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('2026-01-02T00:00:00.000Z'),
+        }),
+      );
+    });
+
+    it('tells the reader to ignore it when it was not expected', async () => {
+      sendMail.mockResolvedValue({ accepted: ['user@example.com'] });
+
+      await service.sendEmailVerificationEmail(message);
+
+      expect(sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('ignore this email'),
+        }),
+      );
+    });
+
+    it('rejects a provider response without accepted recipients', async () => {
+      sendMail.mockResolvedValue({ accepted: [] });
+
+      await expect(service.sendEmailVerificationEmail(message)).rejects.toThrow(
+        'Recipient was not accepted',
+      );
+    });
+  });
+
   it('closes the SMTP transport during application shutdown', () => {
     const close = vi.fn();
     Reflect.set(service, 'transport', { sendMail, close });

@@ -31,11 +31,11 @@ describe('AccountEmailQueueService', () => {
     vi.useRealTimers();
   });
 
-  describe('enqueuePasswordReset', () => {
+  describe('enqueue', () => {
     it('adds a password reset job that carries only the token id', async () => {
       const { service, add } = setup();
 
-      await service.enqueuePasswordReset(ROW_ID);
+      await service.enqueue('password-reset', ROW_ID);
 
       expect(add).toHaveBeenCalledWith(
         'send-password-reset',
@@ -47,7 +47,7 @@ describe('AccountEmailQueueService', () => {
     it('uses the token id as the job id so one token is never queued twice', async () => {
       const { service, add } = setup();
 
-      await service.enqueuePasswordReset(ROW_ID);
+      await service.enqueue('password-reset', ROW_ID);
 
       expect(add.mock.calls[0][2]).toMatchObject({ jobId: ROW_ID });
     });
@@ -55,7 +55,7 @@ describe('AccountEmailQueueService', () => {
     it('retries a failed job with backoff', async () => {
       const { service, add } = setup();
 
-      await service.enqueuePasswordReset(ROW_ID);
+      await service.enqueue('password-reset', ROW_ID);
 
       expect(add.mock.calls[0][2]).toMatchObject({
         attempts: 3,
@@ -66,7 +66,7 @@ describe('AccountEmailQueueService', () => {
     it('does not keep completed jobs', async () => {
       const { service, add } = setup();
 
-      await service.enqueuePasswordReset(ROW_ID);
+      await service.enqueue('password-reset', ROW_ID);
 
       expect(add.mock.calls[0][2]).toMatchObject({ removeOnComplete: true });
     });
@@ -74,7 +74,7 @@ describe('AccountEmailQueueService', () => {
     it('bounds how long failed jobs are kept', async () => {
       const { service, add } = setup();
 
-      await service.enqueuePasswordReset(ROW_ID);
+      await service.enqueue('password-reset', ROW_ID);
 
       expect(add.mock.calls[0][2].removeOnFail).toEqual({
         age: 604_800,
@@ -85,7 +85,36 @@ describe('AccountEmailQueueService', () => {
     it('reports success when the queue accepts the job', async () => {
       const { service } = setup();
 
-      await expect(service.enqueuePasswordReset(ROW_ID)).resolves.toBe(true);
+      await expect(service.enqueue('password-reset', ROW_ID)).resolves.toBe(
+        true,
+      );
+    });
+
+    describe('an email verification', () => {
+      it('uses its own job name', async () => {
+        const { service, add } = setup();
+
+        await service.enqueue('email-verification', ROW_ID);
+
+        expect(add).toHaveBeenCalledWith(
+          'send-email-verification',
+          { tokenId: ROW_ID },
+          expect.any(Object),
+        );
+      });
+
+      it('names its kind when the queue refuses the job', async () => {
+        const { service, add, application } = setup();
+        add.mockRejectedValue(new Error('private redis details'));
+
+        await service.enqueue('email-verification', ROW_ID);
+
+        expect(application).toHaveBeenCalledExactlyOnceWith({
+          event: 'account_email.enqueue_unavailable',
+          queue: 'account-email',
+          kind: 'email-verification',
+        });
+      });
     });
 
     describe('when the queue refuses the job', () => {
@@ -93,14 +122,16 @@ describe('AccountEmailQueueService', () => {
         const { service, add } = setup();
         add.mockRejectedValue(new Error('private redis details'));
 
-        await expect(service.enqueuePasswordReset(ROW_ID)).resolves.toBe(false);
+        await expect(service.enqueue('password-reset', ROW_ID)).resolves.toBe(
+          false,
+        );
       });
 
       it('logs a fixed event without the error', async () => {
         const { service, add, application } = setup();
         add.mockRejectedValue(new Error('private redis details'));
 
-        await service.enqueuePasswordReset(ROW_ID);
+        await service.enqueue('password-reset', ROW_ID);
 
         expect(application).toHaveBeenCalledExactlyOnceWith({
           event: 'account_email.enqueue_unavailable',
@@ -115,7 +146,7 @@ describe('AccountEmailQueueService', () => {
         const { service, add, application } = setup();
         add.mockReturnValue(new Promise(() => undefined));
 
-        const result = service.enqueuePasswordReset(ROW_ID);
+        const result = service.enqueue('password-reset', ROW_ID);
         await vi.advanceTimersByTimeAsync(3_000);
 
         await expect(result).resolves.toBe(false);
@@ -127,7 +158,9 @@ describe('AccountEmailQueueService', () => {
         add.mockReturnValue(new Promise(() => undefined));
         let settled = false;
 
-        void service.enqueuePasswordReset(ROW_ID).then(() => (settled = true));
+        void service
+          .enqueue('password-reset', ROW_ID)
+          .then(() => (settled = true));
         await vi.advanceTimersByTimeAsync(2_999);
 
         expect(settled).toBe(false);

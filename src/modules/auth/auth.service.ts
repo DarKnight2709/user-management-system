@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { compare, hash } from '@/common/utils/hash.util.js';
 import { LoggingService } from '@/modules/logging/logging.service.js';
 import { UsersService } from '@/modules/users/users.service.js';
+import { EmailVerificationService } from '@/modules/account-security/services/email-verification.service.js';
 import { RegisterDto } from './dto/auth.dto.js';
 import type { AuthenticatedUser } from './interfaces/auth.interface.js';
 import { authRequestContext } from './utils/auth-request-context.util.js';
@@ -18,6 +19,7 @@ export class AuthService {
   constructor(
     private readonly userService: UsersService,
     private readonly loggingService: LoggingService,
+    private readonly emailVerification: EmailVerificationService,
   ) {
     // A failure surfaces when a login awaits it; do not crash on an unhandled rejection.
     this.dummyPasswordHash.catch(() => undefined);
@@ -67,6 +69,8 @@ export class AuthService {
       target: { type: 'USER', id: user.id },
       requestContext: authRequestContext(ipAddress, userAgent),
     });
+
+    await this.emailVerification.sendTo(user.id);
   }
 
   private logLoginFailure(ipAddress?: string, userAgent?: string): void {

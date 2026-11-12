@@ -215,7 +215,7 @@ type SafeEmailErrorFields = {
 
 export type EmailQueueName = 'invitation-email' | 'account-email';
 
-export type AccountEmailKind = 'password-reset';
+export type AccountEmailKind = 'password-reset' | 'email-verification';
 
 export type AccountEmailDeliveryStage =
   'database-read' | 'link-configuration' | 'smtp-send';

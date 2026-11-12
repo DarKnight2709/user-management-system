@@ -5,6 +5,7 @@ import {
   FORGOT_PASSWORD_MIN_DURATION_MS,
   PASSWORD_RESET_TOKEN_LIFETIME_MS,
 } from '../constants/account-security.constant.js';
+import { InvalidSecurityTokenException } from '../invalid-security-token.exception.js';
 import type { AccountEmailQueueService } from '../services/account-email-queue.service.js';
 import { PasswordResetService } from '../services/password-reset.service.js';
 import type { UserSecurityTokenService } from '../services/user-security-token.service.js';
@@ -23,20 +24,8 @@ const TOKEN_HASH = 'hash-of-the-token';
 const NEW_PASSWORD = 'a-brand-new-password';
 const NOW = new Date('2026-06-15T12:00:00Z');
 
-const usable = (overrides: Record<string, unknown> = {}) => ({
-  type: 'PASSWORD_RESET',
-  consumedAt: null,
-  expiresAt: new Date(NOW.getTime() + 60_000),
-  user: { deletedAt: null },
-  ...overrides,
-});
-
 function setup() {
   const manager = {
-    userSecurityToken: {
-      findUnique: vi.fn().mockResolvedValue({ id: ROW_ID, userId: USER_ID }),
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-    },
     user: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     refreshToken: { updateMany: vi.fn().mockResolvedValue({ count: 2 }) },
   };
@@ -46,13 +35,14 @@ function setup() {
   const prisma = {
     serializableTransaction,
     user: { findUnique: vi.fn().mockResolvedValue({ id: USER_ID }) },
-    userSecurityToken: { findUnique: vi.fn().mockResolvedValue(usable()) },
   };
   const tokens = {
     issue: vi.fn().mockResolvedValue({ id: ROW_ID, expiresAt: NOW }),
     hash: vi.fn().mockReturnValue(TOKEN_HASH),
+    isUsable: vi.fn().mockResolvedValue(true),
+    consume: vi.fn().mockResolvedValue(USER_ID),
   };
-  const emailQueue = { enqueuePasswordReset: vi.fn().mockResolvedValue(true) };
+  const emailQueue = { enqueue: vi.fn().mockResolvedValue(true) };
   const auditEvent = { eventId: 'event-1' };
   const logging = {
     security: vi.fn(),
@@ -121,7 +111,7 @@ describe('PasswordResetService', () => {
 
         await run(service, 'nobody@example.com');
 
-        expect(emailQueue.enqueuePasswordReset).not.toHaveBeenCalled();
+        expect(emailQueue.enqueue).not.toHaveBeenCalled();
       });
 
       it('records no security event', async () => {
@@ -169,7 +159,8 @@ describe('PasswordResetService', () => {
 
         await run(service, 'alice@example.com');
 
-        expect(emailQueue.enqueuePasswordReset).toHaveBeenCalledExactlyOnceWith(
+        expect(emailQueue.enqueue).toHaveBeenCalledExactlyOnceWith(
+          'password-reset',
           ROW_ID,
         );
       });
@@ -181,9 +172,7 @@ describe('PasswordResetService', () => {
 
         expect(
           serializableTransaction.mock.invocationCallOrder[0],
-        ).toBeLessThan(
-          emailQueue.enqueuePasswordReset.mock.invocationCallOrder[0],
-        );
+        ).toBeLessThan(emailQueue.enqueue.mock.invocationCallOrder[0]);
       });
 
       it('does not queue an email when the token cannot be saved', async () => {
@@ -195,12 +184,12 @@ describe('PasswordResetService', () => {
         await vi.advanceTimersByTimeAsync(FORGOT_PASSWORD_MIN_DURATION_MS);
         await outcome;
 
-        expect(emailQueue.enqueuePasswordReset).not.toHaveBeenCalled();
+        expect(emailQueue.enqueue).not.toHaveBeenCalled();
       });
 
       it('succeeds even when the queue refuses the job', async () => {
         const { service, emailQueue } = setup();
-        emailQueue.enqueuePasswordReset.mockResolvedValue(false);
+        emailQueue.enqueue.mockResolvedValue(false);
 
         await expect(
           run(service, 'alice@example.com'),
@@ -263,31 +252,37 @@ describe('PasswordResetService', () => {
       service.resetPassword(TOKEN, NEW_PASSWORD, '10.0.0.1', 'agent');
 
     describe('with a token that cannot be used', () => {
-      it.each([
-        ['unknown', null],
-        ['already used', usable({ consumedAt: new Date() })],
-        ['expired', usable({ expiresAt: new Date(NOW.getTime() - 1) })],
-        ['expiring right now', usable({ expiresAt: NOW })],
-        ['of a deleted account', usable({ user: { deletedAt: new Date() } })],
-        ['of another type', usable({ type: 'SOME_OTHER_TYPE' })],
-      ])(
-        'rejects a token that is %s with one generic error',
-        async (_, row) => {
-          const { service, prisma } = setup();
-          prisma.userSecurityToken.findUnique.mockResolvedValue(row);
+      const unusable = () => {
+        const ctx = setup();
+        ctx.tokens.isUsable.mockResolvedValue(false);
+        return ctx;
+      };
 
-          await expect(reset(service)).rejects.toMatchObject({
-            status: 400,
-            message: 'Invalid or expired token',
-          });
-        },
-      );
+      it('is refused with one generic error', async () => {
+        const { service } = unusable();
+
+        await expect(reset(service)).rejects.toMatchObject({
+          status: 400,
+          message: 'Invalid or expired token',
+        });
+      });
+
+      it('is checked by its hash', async () => {
+        const { service, prisma, tokens } = unusable();
+
+        await reset(service).catch(() => undefined);
+
+        expect(tokens.isUsable).toHaveBeenCalledWith(
+          prisma,
+          'PASSWORD_RESET',
+          TOKEN_HASH,
+        );
+      });
 
       it('does not spend a password hash on it', async () => {
-        const { service, prisma } = setup();
+        const { service } = unusable();
         const { hash } = await import('@/common/utils/hash.util.js');
         vi.mocked(hash).mockClear();
-        prisma.userSecurityToken.findUnique.mockResolvedValue(null);
 
         await reset(service).catch(() => undefined);
 
@@ -295,8 +290,7 @@ describe('PasswordResetService', () => {
       });
 
       it('changes nothing', async () => {
-        const { service, prisma, serializableTransaction } = setup();
-        prisma.userSecurityToken.findUnique.mockResolvedValue(null);
+        const { service, serializableTransaction } = unusable();
 
         await reset(service).catch(() => undefined);
 
@@ -304,8 +298,7 @@ describe('PasswordResetService', () => {
       });
 
       it('records the rejection', async () => {
-        const { service, prisma, logging } = setup();
-        prisma.userSecurityToken.findUnique.mockResolvedValue(null);
+        const { service, logging } = unusable();
 
         await reset(service).catch(() => undefined);
 
@@ -318,8 +311,7 @@ describe('PasswordResetService', () => {
       });
 
       it('keeps the token out of that record', async () => {
-        const { service, prisma, logging } = setup();
-        prisma.userSecurityToken.findUnique.mockResolvedValue(null);
+        const { service, logging } = unusable();
 
         await reset(service).catch(() => undefined);
 
@@ -330,30 +322,16 @@ describe('PasswordResetService', () => {
     });
 
     describe('with a usable token', () => {
-      it('looks the token up by its hash', async () => {
-        const { service, prisma } = setup();
+      it('uses the token up inside the transaction', async () => {
+        const { service, manager, tokens } = setup();
 
         await reset(service);
 
-        expect(prisma.userSecurityToken.findUnique).toHaveBeenCalledWith(
-          expect.objectContaining({ where: { tokenHash: TOKEN_HASH } }),
+        expect(tokens.consume).toHaveBeenCalledWith(
+          manager,
+          'PASSWORD_RESET',
+          TOKEN_HASH,
         );
-      });
-
-      it('uses the token up only if it is still unused and unexpired', async () => {
-        const { service, manager } = setup();
-
-        await reset(service);
-
-        expect(manager.userSecurityToken.updateMany).toHaveBeenCalledWith({
-          where: {
-            id: ROW_ID,
-            type: 'PASSWORD_RESET',
-            consumedAt: null,
-            expiresAt: { gt: NOW },
-          },
-          data: { consumedAt: NOW },
-        });
       });
 
       it('stores the hash of the new password for that active account', async () => {
@@ -428,16 +406,11 @@ describe('PasswordResetService', () => {
     describe('when the token is lost between the check and the change', () => {
       it.each([
         [
-          'another reset used it first',
+          'another request used it first',
           (ctx: ReturnType<typeof setup>) =>
-            ctx.manager.userSecurityToken.updateMany.mockResolvedValue({
-              count: 0,
-            }),
-        ],
-        [
-          'its row is gone',
-          (ctx: ReturnType<typeof setup>) =>
-            ctx.manager.userSecurityToken.findUnique.mockResolvedValue(null),
+            ctx.tokens.consume.mockRejectedValue(
+              new InvalidSecurityTokenException(),
+            ),
         ],
         [
           'the account was deleted',
@@ -456,9 +429,9 @@ describe('PasswordResetService', () => {
 
       it('records the rejection', async () => {
         const ctx = setup();
-        ctx.manager.userSecurityToken.updateMany.mockResolvedValue({
-          count: 0,
-        });
+        ctx.tokens.consume.mockRejectedValue(
+          new InvalidSecurityTokenException(),
+        );
 
         await reset(ctx.service).catch(() => undefined);
 
@@ -469,9 +442,9 @@ describe('PasswordResetService', () => {
 
       it('publishes no audit copy', async () => {
         const ctx = setup();
-        ctx.manager.userSecurityToken.updateMany.mockResolvedValue({
-          count: 0,
-        });
+        ctx.tokens.consume.mockRejectedValue(
+          new InvalidSecurityTokenException(),
+        );
 
         await reset(ctx.service).catch(() => undefined);
 

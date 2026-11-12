@@ -37,6 +37,7 @@ enum InvitationDeliveryStatus {
 
 enum UserSecurityTokenType {
   PASSWORD_RESET
+  EMAIL_VERIFICATION
 }
 
 enum AuditActorType {
@@ -63,6 +64,7 @@ model User {
   birthDate           DateTime                 @map("birth_date")
   hashedPassword      String                   @map("hashed_password")
   avatarKey           String?                  @map("avatar_key")
+  emailVerifiedAt     DateTime?                @map("email_verified_at")
   createdAt           DateTime                 @default(now()) @map("created_at")
   updatedAt           DateTime                 @updatedAt @map("updated_at")
   deletedAt           DateTime?                @map("deleted_at")

@@ -10,14 +10,14 @@ import {
   ACCOUNT_EMAIL_WORKER_CONCURRENCY,
 } from '../constants/account-security.constant.js';
 import type { AccountEmailJobData } from '../interfaces/account-email-job.interface.js';
-import { PasswordResetDeliveryService } from '../services/password-reset-delivery.service.js';
+import { SecurityTokenEmailDeliveryService } from '../services/security-token-email-delivery.service.js';
 
 @Processor(ACCOUNT_EMAIL_QUEUE, {
   concurrency: ACCOUNT_EMAIL_WORKER_CONCURRENCY,
 })
 export class AccountEmailWorker extends WorkerHost implements OnModuleDestroy {
   constructor(
-    private readonly passwordReset: PasswordResetDeliveryService,
+    private readonly delivery: SecurityTokenEmailDeliveryService,
     private readonly logging: LoggingService,
   ) {
     super();
@@ -26,7 +26,10 @@ export class AccountEmailWorker extends WorkerHost implements OnModuleDestroy {
   async process(job: Job<AccountEmailJobData>): Promise<void> {
     switch (job.name) {
       case EmailJobNames.SEND_PASSWORD_RESET_EMAIL:
-        await this.passwordReset.deliver(job.data);
+        await this.delivery.deliver('PASSWORD_RESET', job.data);
+        break;
+      case EmailJobNames.SEND_EMAIL_VERIFICATION:
+        await this.delivery.deliver('EMAIL_VERIFICATION', job.data);
         break;
       default:
         throw new UnrecoverableError('Unsupported account email job');

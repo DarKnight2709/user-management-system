@@ -67,9 +67,11 @@ describe('Invitation acceptance token verification', () => {
     };
     const manager = {
       user: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValue({ id: 'recipient', email: invitation.email }),
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'recipient',
+          email: invitation.email,
+          emailVerifiedAt: new Date(),
+        }),
         findFirst: vi
           .fn()
           .mockResolvedValue({ id: 'recipient', deletedAt: null }),

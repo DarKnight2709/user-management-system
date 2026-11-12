@@ -5,6 +5,8 @@ export interface User {
   lastName: string;
   birthDate: Date;
   email: string;
+  /** When the address was proven to belong to the owner; null until then. */
+  emailVerifiedAt: Date | null;
   hashedPassword?: string;
   avatarUrl?: string | null;
   createdAt: Date;
