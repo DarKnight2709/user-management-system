@@ -110,7 +110,7 @@ Mọi cổng đều chỉ bind `127.0.0.1`: không service nào tự mở ra Int
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `postgres` | `postgres:15-alpine` | 5432 | volume `pgdata` | 1 CPU, 512M | Healthcheck `pg_isready` |
 | `redis` | `redis:7-alpine` | 6379 | volume `redisdata` | 0.5 CPU, 128M | AOF bật, `maxmemory 96mb`, `noeviction`, có mật khẩu, healthcheck |
-| `minio` | `ghcr.io/darknight2709/ums-minio:RELEASE.2025-04-22...` | 9000, 9001 (console) | volume `miniodata` | 0.5 CPU, 256M | Tài khoản root chỉ để quản trị |
+| `minio` | `ghcr.io/darknight2709/ums-minio:RELEASE.2025-04-22...` | 9000, 9001 (console) | volume `miniodata` | 0.5 CPU, 1G | Tài khoản root chỉ để quản trị |
 | `minio-init` | cùng image | — | — | — | Chạy một lần rồi thoát (xem dưới) |
 | `backend` | `ghcr.io/darknight2709/ums-backend:${BACKEND_IMAGE_TAG:-latest}` | 3000 | — | 1 CPU, 512M | Chờ postgres và redis healthy, minio-init hoàn tất |
 | `loki` | `grafana/loki:3.4.2` | — | volume `loki_data` | — | Lưu log, giữ 7 ngày |

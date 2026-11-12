@@ -94,7 +94,9 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 256M
+          # 256M was not enough: MinIO sat at 85% when idle and restarted itself
+          # whenever minio-init asked it to create the application user.
+          memory: 1G
     networks:
       - ums-net
 
