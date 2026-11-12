@@ -93,6 +93,17 @@ wait_for_backend() {
   return 1
 }
 
+# Grafana reads GF_SECURITY_ADMIN_PASSWORD only when it first creates its
+# database, so an existing volume keeps the old password until it is reset.
+# Repeating it is harmless. Failing to apply it must not fail the deploy.
+sync_grafana_admin_password() {
+  if ! compose exec -T grafana sh -c \
+    'grafana cli admin reset-admin-password "$GF_SECURITY_ADMIN_PASSWORD"' \
+    >/dev/null; then
+    log "WARNING: could not apply the Grafana admin password; it may still be the previous one"
+  fi
+}
+
 roll_back_to() {
   local tag="$1"
 
@@ -123,6 +134,7 @@ main() {
 
   if wait_for_backend; then
     echo "${new_tag}" >"${DEPLOYED_TAG_FILE}"
+    sync_grafana_admin_password
     prune_old_backend_images "${new_tag}" "${previous_tag}"
     docker image prune -f
     log "deployed ${new_tag}"
