@@ -853,6 +853,8 @@ database connectivity and access to the users table, not every migration or busi
 
 ### Deployment, backup and rollback
 
+For the full picture of the CI/CD pipeline, the VPS services, secrets and operating procedures, see [docs/infrastructure-and-deployment.md](docs/infrastructure-and-deployment.md).
+
 Pushes to `main` build the backend image, tag it `latest` and with the commit SHA, then deploy it with `scripts/deploy.sh`:
 
 1. Pull images and take a `pg_dump` into `~/backups` on the VPS (the seven newest are kept). If the backup fails or cannot be read, the deploy stops before anything changes.
