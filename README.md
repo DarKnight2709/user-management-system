@@ -861,7 +861,20 @@ Pushes to `main` build the backend image, tag it `latest` and with the commit SH
 
 Rollback only changes the image. Migrations are not undone, so each migration must keep working with the previous release. A backup is restored by hand, and the backups share the VPS disk with the database, so they do not protect against losing the disk.
 
-Production Redis persists with AOF and refuses writes at 96 MB instead of being killed at its 128 MB container limit. A reverse proxy and TLS are not configured here. Redis authentication, Grafana credentials and a dedicated MinIO application user are still open work. This flow was not exercised against a real server.
+Production Redis persists with AOF and refuses writes at 96 MB instead of being killed at its 128 MB container limit. A reverse proxy and TLS are not configured here. This flow was not exercised against a real server.
+
+#### Production secrets
+
+`docker-compose.prod.yml` refuses to start unless these are set in the deployed `.env` (the `ENV_PRODUCTION` secret):
+
+| Variable | Purpose |
+| :--- | :--- |
+| `REDIS_PASSWORD` | Redis authentication; the backend reads the same value |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana `admin` password, applied on every deploy |
+| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | MinIO administration account, never used by the application |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | The application's own MinIO account, created by `minio-init` and limited to writing and deleting objects in the `avatars` bucket. It must differ from `MINIO_ROOT_USER` |
+
+Add the new variables to `ENV_PRODUCTION` **before** merging, otherwise the deploy fails at `docker compose`. Expect a short window during the deploy in which avatar uploads fail, because MinIO restarts with the new root account before `minio-init` creates the application user. Rotating Redis or MinIO credentials later means changing `.env` and redeploying.
 
 ### Authentication Flow in Swagger UI:
 

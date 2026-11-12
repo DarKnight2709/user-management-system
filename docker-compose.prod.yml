@@ -41,6 +41,9 @@ services:
     restart: always
     # Queue jobs live here: persist them with AOF, and reject writes at the
     # memory cap (below the container limit) instead of being OOM-killed.
+    # The default entrypoint is kept so redis-server drops root privileges.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     command:
       [
         'redis-server',
@@ -50,13 +53,17 @@ services:
         '96mb',
         '--maxmemory-policy',
         'noeviction',
+        '--requirepass',
+        '${REDIS_PASSWORD}',
       ]
     ports:
       - '127.0.0.1:6379:6379'
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$${REDIS_PASSWORD}" --no-auth-warning ping | grep -q PONG
       interval: 10s
       timeout: 3s
       retries: 5
@@ -73,9 +80,10 @@ services:
     image: ghcr.io/darknight2709/ums-minio:RELEASE.2025-04-22T22-12-26Z
     container_name: ums-minio
     restart: always
+    # Root account: used for administration only, never by the application.
     environment: &minio-credentials
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
     ports:
       - '127.0.0.1:9000:9000'
       - '127.0.0.1:9001:9001'
@@ -97,13 +105,23 @@ services:
     depends_on:
       - minio
     restart: 'no'
-    environment: *minio-credentials
+    environment:
+      <<: *minio-credentials
+      # The application's account (S3_ACCESS_KEY/S3_SECRET_KEY in .env).
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
     volumes:
       - ./docker/minio/avatars-policy.json:/policies/avatars-policy.json:ro
+      - ./docker/minio/avatars-app-policy.json:/policies/avatars-app-policy.json:ro
     entrypoint: ['/bin/sh', '-c']
     command:
       - |
         set -eu
+
+        if [ "$$S3_ACCESS_KEY" = "$$MINIO_ROOT_USER" ]; then
+          echo "S3_ACCESS_KEY must differ from MINIO_ROOT_USER: the application must not use the root account."
+          exit 1
+        fi
 
         attempt=0
         until mc alias set storage http://minio:9000 \
@@ -118,7 +136,14 @@ services:
 
         mc mb --ignore-existing storage/avatars
         mc anonymous set-json /policies/avatars-policy.json storage/avatars
-        echo "Avatar bucket initialization completed."
+
+        # Least-privilege account for the application. Safe to repeat: the policy
+        # is replaced, the user's secret is reset, and an existing attachment is kept.
+        mc admin policy create storage avatars-app /policies/avatars-app-policy.json
+        mc admin user add storage "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY"
+        mc admin policy attach storage avatars-app --user "$$S3_ACCESS_KEY" ||
+          mc admin user info storage "$$S3_ACCESS_KEY" | grep -q avatars-app
+        echo "Avatar bucket and application user initialization completed."
     networks:
       - ums-net
 
@@ -182,7 +207,7 @@ services:
     image: grafana/grafana:11.5.2
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: 'false'
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

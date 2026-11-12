@@ -221,7 +221,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: 'docker-compose.prod.yml,.env,scripts/deploy.sh,docker/minio/avatars-policy.json,alloy/config.alloy,loki/loki-config.yaml,grafana/provisioning'
+          source: 'docker-compose.prod.yml,.env,scripts/deploy.sh,docker/minio/avatars-policy.json,docker/minio/avatars-app-policy.json,alloy/config.alloy,loki/loki-config.yaml,grafana/provisioning'
           target: '~/app'
 
       # 3. Thực thi kéo Image mới, Migrate DB, Up container và Dọn rác
